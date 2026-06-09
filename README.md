@@ -62,15 +62,15 @@ OpenTalking 提供 Web 服务界面，用于管理数字人对话链路：可以
   <tr>
     <td align="center" valign="top" width="33%">
       <b>电商带货</b><br/>
-      <video src="https://github.com/user-attachments/assets/f58b1311-4c7c-4995-9033-28e89d185a95" controls width="100%"></video><br/>
+      <video src="https://github.com/user-attachments/assets/f58b1311-4c7c-4995-9033-28e89d185a95" controls width="240" height="426"></video><br/>
     </td>
     <td align="center" valign="top" width="33%">
       <b>实时对话案例 2</b><br/>
-      <video src="https://github.com/user-attachments/assets/cdce11f7-c922-42a8-b21a-dd8b08ea0d91" controls width="100%"></video><br/>
+      <video src="https://github.com/user-attachments/assets/cdce11f7-c922-42a8-b21a-dd8b08ea0d91" controls width="240" height="426"></video><br/>
     </td>
     <td align="center" valign="top" width="33%">
       <b>实时对话案例 3</b><br/>
-      <video src="https://github.com/user-attachments/assets/fb4bf0c0-d9ae-4fd4-8873-25d2ebeee5a6" controls width="100%"></video><br/>
+      <video src="https://github.com/user-attachments/assets/fb4bf0c0-d9ae-4fd4-8873-25d2ebeee5a6" controls width="240" height="426"></video><br/>
     </td>
   </tr>
   <tr>
@@ -79,28 +79,34 @@ OpenTalking 提供 Web 服务界面，用于管理数字人对话链路：可以
   <tr>
     <td align="center" valign="top" width="33%">
       <b>语音 drive</b><br/>
-      <video src="https://github.com/user-attachments/assets/ac797d51-3acb-4465-9e98-bd0732fd5c8b" controls width="100%"></video><br/>
+      <video src="https://github.com/user-attachments/assets/ac797d51-3acb-4465-9e98-bd0732fd5c8b" controls width="320" height="180"></video><br/>
     </td>
     <td align="center" valign="top" width="33%">
       <b>文字 drive</b><br/>
-      <video src="https://github.com/user-attachments/assets/d4667cc8-1171-471e-b5e4-9f77930b580e" controls width="100%"></video><br/>
+      <video src="https://github.com/user-attachments/assets/d4667cc8-1171-471e-b5e4-9f77930b580e" controls width="320" height="180"></video><br/>
     </td>
     <td align="center" valign="top" width="33%">
       <b>克隆音色 drive</b><br/>
-      <video src="https://github.com/user-attachments/assets/916a9274-7059-4eca-b8ab-103823312082" controls width="100%"></video><br/>
+      <video src="https://github.com/user-attachments/assets/916a9274-7059-4eca-b8ab-103823312082" controls width="320" height="180"></video><br/>
     </td>
   </tr>
   <tr>
     <th align="center" colspan="3">C. 视频克隆</th>
   </tr>
   <tr>
-    <td align="center" valign="top" width="50%" colspan="1">
-      <b>摄像头实时模仿</b><br/>
-      <video src="https://github.com/user-attachments/assets/47c6ac2b-c55e-4e74-a47c-5c5d157feeba" controls width="100%"></video><br/>
-    </td>
-    <td align="center" valign="top" width="50%" colspan="2">
-      <b>上传视频模仿</b><br/>
-      <video src="https://github.com/user-attachments/assets/cf264a0a-9abf-47c4-8a19-1b4474d7f172" controls width="100%"></video><br/>
+    <td align="center" valign="top" colspan="3">
+      <table>
+        <tr>
+          <td align="center" valign="top" width="50%">
+            <b>摄像头实时模仿</b><br/>
+            <video src="https://github.com/user-attachments/assets/47c6ac2b-c55e-4e74-a47c-5c5d157feeba" controls width="420" height="236"></video><br/>
+          </td>
+          <td align="center" valign="top" width="50%">
+            <b>上传视频模仿</b><br/>
+            <video src="https://github.com/user-attachments/assets/cf264a0a-9abf-47c4-8a19-1b4474d7f172" controls width="420" height="236"></video><br/>
+          </td>
+        </tr>
+      </table>
     </td>
   </tr>
 </table>
