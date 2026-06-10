@@ -62,15 +62,15 @@ OpenTalking 提供 Web 服务界面，用于管理数字人对话链路：可以
   <tr>
     <td align="center" valign="top" width="33%">
       <b>电商带货</b><br/>
-      <video src="https://github.com/user-attachments/assets/e2ed7355-643f-4178-8623-92191adca75e" controls preload="metadata" width="248" height="441"></video><br/>
+      <video src="https://github.com/user-attachments/assets/9a3a3190-f0a6-4274-aecc-f8d810c6eab9" controls preload="metadata" width="248" height="441"></video><br/>
     </td>
     <td align="center" valign="top" width="33%">
       <b>实时对话案例 2</b><br/>
-      <video src="https://github.com/user-attachments/assets/6d425294-aad1-4b9c-baaf-31756776868d" controls preload="metadata" width="248" height="441"></video><br/>
+      <video src="https://github.com/user-attachments/assets/a32c228e-6031-4b4c-a96e-a6ccf9421220" controls preload="metadata" width="248" height="441"></video><br/>
     </td>
     <td align="center" valign="top" width="33%">
       <b>实时对话案例 3</b><br/>
-      <video src="https://github.com/user-attachments/assets/99a88892-78fc-4061-b32e-c2623be11b65" controls preload="metadata" width="248" height="441"></video><br/>
+      <video src="https://github.com/user-attachments/assets/db713295-4e79-4015-8b1b-8aa2b0d6796f" controls preload="metadata" width="248" height="441"></video><br/>
     </td>
   </tr>
 </table>
@@ -82,15 +82,15 @@ OpenTalking 提供 Web 服务界面，用于管理数字人对话链路：可以
   <tr>
     <td align="center" valign="top" width="33%">
       <b>语音 drive</b><br/>
-      <video src="https://github.com/user-attachments/assets/dd93ad65-6abc-4545-9d5c-8b3c0f60a0d0" controls preload="metadata" width="248" height="140"></video><br/>
+      <video src="https://github.com/user-attachments/assets/f0c236a0-9b2c-4d59-8063-a8ebd6ce2d40" controls preload="metadata" width="248" height="140"></video><br/>
     </td>
     <td align="center" valign="top" width="33%">
       <b>文字 drive</b><br/>
-      <video src="https://github.com/user-attachments/assets/a408b0f7-510a-44ea-9e3a-240f5389adaf" controls preload="metadata" width="248" height="140"></video><br/>
+      <video src="https://github.com/user-attachments/assets/9486af67-1f62-45ae-9899-5011a1d39de4" controls preload="metadata" width="248" height="140"></video><br/>
     </td>
     <td align="center" valign="top" width="33%">
       <b>克隆音色 drive</b><br/>
-      <video src="https://github.com/user-attachments/assets/f48b36b9-ca23-4df2-a359-48ab00253a84" controls preload="metadata" width="248" height="140"></video><br/>
+      <video src="https://github.com/user-attachments/assets/add70d20-38c9-439c-a627-b6323945dedb" controls preload="metadata" width="248" height="140"></video><br/>
     </td>
   </tr>
 </table>
@@ -102,11 +102,11 @@ OpenTalking 提供 Web 服务界面，用于管理数字人对话链路：可以
   <tr>
     <td align="center" valign="top" width="50%">
       <b>摄像头实时模仿</b><br/>
-      <video src="https://github.com/user-attachments/assets/e54f85b1-9d53-452a-bb66-19e749365b04" controls preload="metadata" width="386" height="217"></video><br/>
+      <video src="https://github.com/user-attachments/assets/6f29630b-c7ab-4b43-ad3b-e6e9d360c92c" controls preload="metadata" width="386" height="217"></video><br/>
     </td>
     <td align="center" valign="top" width="50%">
       <b>上传视频模仿</b><br/>
-      <video src="https://github.com/user-attachments/assets/ec79f375-aa00-4ab4-b7c6-bff56eae3362" controls preload="metadata" width="386" height="217"></video><br/>
+      <video src="https://github.com/user-attachments/assets/583e078c-a7c2-4fe9-97db-43ea87c1c09c" controls preload="metadata" width="386" height="217"></video><br/>
     </td>
   </tr>
 </table>
