@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180" role="img" aria-label="Play demo video">
+  <rect width="320" height="180" rx="8" fill="#111827"/>
+  <rect x="1" y="1" width="318" height="178" rx="7" fill="none" stroke="#374151" stroke-width="2"/>
+  <circle cx="160" cy="90" r="30" fill="#ffffff" opacity="0.92"/>
+  <path d="M151 72 L151 108 L181 90 Z" fill="#111827"/>
+</svg>
