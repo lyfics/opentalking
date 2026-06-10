@@ -55,22 +55,61 @@ OpenTalking 提供 Web 服务界面，用于管理数字人对话链路：可以
 
 以下是 OpenTalking 典型场景演示视频，覆盖实时对话、视频创作和视频克隆三类前端工作流。
 
-**A. 实时对话**
-
-- [电商带货](https://github.com/user-attachments/assets/e2ed7355-643f-4178-8623-92191adca75e)
-- [实时对话案例 2](https://github.com/user-attachments/assets/6d425294-aad1-4b9c-baaf-31756776868d)
-- [实时对话案例 3](https://github.com/user-attachments/assets/99a88892-78fc-4061-b32e-c2623be11b65)
-
-**B. 视频创作**
-
-- [语音 drive](https://github.com/user-attachments/assets/dd93ad65-6abc-4545-9d5c-8b3c0f60a0d0)
-- [文字 drive](https://github.com/user-attachments/assets/a408b0f7-510a-44ea-9e3a-240f5389adaf)
-- [克隆音色 drive](https://github.com/user-attachments/assets/f48b36b9-ca23-4df2-a359-48ab00253a84)
-
-**C. 视频克隆**
-
-- [摄像头实时模仿](https://github.com/user-attachments/assets/e54f85b1-9d53-452a-bb66-19e749365b04)
-- [上传视频模仿](https://github.com/user-attachments/assets/ec79f375-aa00-4ab4-b7c6-bff56eae3362)
+<table cellpadding="0" cellspacing="0">
+  <tr>
+    <th align="center" colspan="3">A. 实时对话</th>
+  </tr>
+  <tr>
+    <td align="center" valign="top" width="150">
+      <b>电商带货</b><br/>
+      <video src="https://github.com/user-attachments/assets/e2ed7355-643f-4178-8623-92191adca75e" controls width="150" height="267"></video><br/>
+    </td>
+    <td align="center" valign="top" width="150">
+      <b>实时对话案例 2</b><br/>
+      <video src="https://github.com/user-attachments/assets/6d425294-aad1-4b9c-baaf-31756776868d" controls width="150" height="267"></video><br/>
+    </td>
+    <td align="center" valign="top" width="150">
+      <b>实时对话案例 3</b><br/>
+      <video src="https://github.com/user-attachments/assets/99a88892-78fc-4061-b32e-c2623be11b65" controls width="150" height="267"></video><br/>
+    </td>
+  </tr>
+  <tr>
+    <th align="center" colspan="3">B. 视频创作</th>
+  </tr>
+  <tr>
+    <td align="center" valign="top" width="210">
+      <b>语音 drive</b><br/>
+      <video src="https://github.com/user-attachments/assets/dd93ad65-6abc-4545-9d5c-8b3c0f60a0d0" controls width="210" height="118"></video><br/>
+    </td>
+    <td align="center" valign="top" width="210">
+      <b>文字 drive</b><br/>
+      <video src="https://github.com/user-attachments/assets/a408b0f7-510a-44ea-9e3a-240f5389adaf" controls width="210" height="118"></video><br/>
+    </td>
+    <td align="center" valign="top" width="210">
+      <b>克隆音色 drive</b><br/>
+      <video src="https://github.com/user-attachments/assets/f48b36b9-ca23-4df2-a359-48ab00253a84" controls width="210" height="118"></video><br/>
+    </td>
+  </tr>
+  <tr>
+    <th align="center" colspan="3">C. 视频克隆</th>
+  </tr>
+  <tr>
+    <td align="center" valign="top" colspan="3">
+      <table cellpadding="0" cellspacing="0">
+        <tr>
+          <td align="center" valign="top" width="300">
+            <b>摄像头实时模仿</b><br/>
+            <video src="https://github.com/user-attachments/assets/e54f85b1-9d53-452a-bb66-19e749365b04" controls width="300" height="169"></video><br/>
+          </td>
+          <td align="center" valign="top" width="300">
+            <b>上传视频模仿</b><br/>
+            <video src="https://github.com/user-attachments/assets/ec79f375-aa00-4ab4-b7c6-bff56eae3362" controls width="300" height="169"></video><br/>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
 
 ## 快速开始
 
