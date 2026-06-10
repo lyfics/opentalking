@@ -70,7 +70,7 @@ OpenTalking 提供 Web 服务界面，用于管理数字人对话链路：可以
     </td>
     <td align="center" valign="top" width="33%">
       <b>实时对话案例 3</b><br/>
-      <video src="https://github.com/user-attachments/assets/db713295-4e79-4015-8b1b-8aa2b0d6796f" controls preload="metadata" width="248" height="441"></video><br/>
+      <video src="https://github.com/user-attachments/assets/6dae9640-9d08-4639-85f7-6a86241b25a3" controls preload="metadata" width="248" height="441"></video><br/>
     </td>
   </tr>
 </table>
