@@ -55,61 +55,22 @@ OpenTalking 提供 Web 服务界面，用于管理数字人对话链路：可以
 
 以下是 OpenTalking 典型场景演示视频，覆盖实时对话、视频创作和视频克隆三类前端工作流。
 
-<table cellpadding="0" cellspacing="0">
-  <tr>
-    <th align="center" colspan="3">A. 实时对话</th>
-  </tr>
-  <tr>
-    <td align="center" valign="top" width="160">
-      <b>电商带货</b><br/>
-      <a href="https://github.com/user-attachments/assets/e2ed7355-643f-4178-8623-92191adca75e"><img src="docs/assets/images/demo-video-portrait.svg" alt="电商带货" width="160"></a><br/>
-    </td>
-    <td align="center" valign="top" width="160">
-      <b>实时对话案例 2</b><br/>
-      <a href="https://github.com/user-attachments/assets/6d425294-aad1-4b9c-baaf-31756776868d"><img src="docs/assets/images/demo-video-portrait.svg" alt="实时对话案例 2" width="160"></a><br/>
-    </td>
-    <td align="center" valign="top" width="160">
-      <b>实时对话案例 3</b><br/>
-      <a href="https://github.com/user-attachments/assets/99a88892-78fc-4061-b32e-c2623be11b65"><img src="docs/assets/images/demo-video-portrait.svg" alt="实时对话案例 3" width="160"></a><br/>
-    </td>
-  </tr>
-  <tr>
-    <th align="center" colspan="3">B. 视频创作</th>
-  </tr>
-  <tr>
-    <td align="center" valign="top" width="220">
-      <b>语音 drive</b><br/>
-      <a href="https://github.com/user-attachments/assets/dd93ad65-6abc-4545-9d5c-8b3c0f60a0d0"><img src="docs/assets/images/demo-video-landscape.svg" alt="语音 drive" width="220"></a><br/>
-    </td>
-    <td align="center" valign="top" width="220">
-      <b>文字 drive</b><br/>
-      <a href="https://github.com/user-attachments/assets/a408b0f7-510a-44ea-9e3a-240f5389adaf"><img src="docs/assets/images/demo-video-landscape.svg" alt="文字 drive" width="220"></a><br/>
-    </td>
-    <td align="center" valign="top" width="220">
-      <b>克隆音色 drive</b><br/>
-      <a href="https://github.com/user-attachments/assets/f48b36b9-ca23-4df2-a359-48ab00253a84"><img src="docs/assets/images/demo-video-landscape.svg" alt="克隆音色 drive" width="220"></a><br/>
-    </td>
-  </tr>
-  <tr>
-    <th align="center" colspan="3">C. 视频克隆</th>
-  </tr>
-  <tr>
-    <td align="center" valign="top" colspan="3">
-      <table cellpadding="0" cellspacing="0">
-        <tr>
-          <td align="center" valign="top" width="320">
-            <b>摄像头实时模仿</b><br/>
-            <a href="https://github.com/user-attachments/assets/e54f85b1-9d53-452a-bb66-19e749365b04"><img src="docs/assets/images/demo-video-landscape.svg" alt="摄像头实时模仿" width="320"></a><br/>
-          </td>
-          <td align="center" valign="top" width="320">
-            <b>上传视频模仿</b><br/>
-            <a href="https://github.com/user-attachments/assets/ec79f375-aa00-4ab4-b7c6-bff56eae3362"><img src="docs/assets/images/demo-video-landscape.svg" alt="上传视频模仿" width="320"></a><br/>
-          </td>
-        </tr>
-      </table>
-    </td>
-  </tr>
-</table>
+**A. 实时对话**
+
+- [电商带货](https://github.com/user-attachments/assets/e2ed7355-643f-4178-8623-92191adca75e)
+- [实时对话案例 2](https://github.com/user-attachments/assets/6d425294-aad1-4b9c-baaf-31756776868d)
+- [实时对话案例 3](https://github.com/user-attachments/assets/99a88892-78fc-4061-b32e-c2623be11b65)
+
+**B. 视频创作**
+
+- [语音 drive](https://github.com/user-attachments/assets/dd93ad65-6abc-4545-9d5c-8b3c0f60a0d0)
+- [文字 drive](https://github.com/user-attachments/assets/a408b0f7-510a-44ea-9e3a-240f5389adaf)
+- [克隆音色 drive](https://github.com/user-attachments/assets/f48b36b9-ca23-4df2-a359-48ab00253a84)
+
+**C. 视频克隆**
+
+- [摄像头实时模仿](https://github.com/user-attachments/assets/e54f85b1-9d53-452a-bb66-19e749365b04)
+- [上传视频模仿](https://github.com/user-attachments/assets/ec79f375-aa00-4ab4-b7c6-bff56eae3362)
 
 ## 快速开始
 
