@@ -134,6 +134,10 @@ OpenTalking 的 **编排层**（API / Worker / 前端）和 **数字人合成后
 
 适用：第一次接触项目，不下载视频模型权重，先用 Mock 模式跑通产品链路。数字人画面使用内置静态帧，LLM 回复、流式 TTS、字幕事件和 WebRTC 传输仍是完整链路。
 
+### 云端镜像部署
+
+如果希望直接使用预装 QuickTalk、Edge TTS、DashScope ASR、OpenTalking Web/API 和 OmniRT 的云端镜像，可以查看 [OpenTalking 一键部署镜像](https://www.compshare.cn/images/TdDwmKZUZebI)。注册并登录优云智算后，从镜像页点击部署 GPU 实例，选择最新版本和可用 GPU 规格，实例运行后打开 `5173` 端口即可进入 WebUI；详细步骤见 [镜像部署](docs/zh/quick-start/image-deployment.md)。
+
 ```bash
 git clone https://github.com/datascale-ai/opentalking.git
 cd opentalking
@@ -144,6 +148,8 @@ cp .env.example .env
 ```
 
 编辑 `.env`，至少配置 LLM；TTS 默认可使用不需要 key 的 `edge` 语音。LLM、STT、TTS 是独立 provider，常见配置见 [配置说明](docs/zh/user-guide/configuration.md) 和 [LLM / STT 文档](docs/zh/model-deployment/llm-stt.md)。
+
+WebUI 在实时对话设置面板顶部提供默认收起的 **静态配置** 区域。运维或体验用户可以在这里热更新常见 LLM / TTS / STT API key、endpoint、模型名和音色，无需重启整个服务；新的请求和新会话会使用刷新后的配置。详情见 [配置说明](docs/zh/user-guide/configuration.md#通过-webui-热更新运行时配置)。
 
 ```bash
 bash scripts/start_unified.sh --mock

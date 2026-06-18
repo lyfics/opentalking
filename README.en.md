@@ -134,6 +134,10 @@ OpenTalking's **orchestration layer** (API / Worker / frontend) and **digital-hu
 
 Use this path when you are trying the project for the first time and do not want to download video model weights yet. The digital-human image uses the built-in static Mock frame, while LLM replies, streaming TTS, subtitle events, and WebRTC delivery still run through the full product path.
 
+### Cloud Image Deployment
+
+For a cloud image with QuickTalk, Edge TTS, DashScope ASR, OpenTalking Web/API, and OmniRT preinstalled, open the [OpenTalking one-click deployment image](https://www.compshare.cn/images/TdDwmKZUZebI). Register and log in to Compshare, deploy a GPU instance from the image page, select the latest version and an available GPU specification, then open port `5173` after the instance starts. See [Image Deployment](docs/en/quick-start/image-deployment.md) for the full workflow.
+
 ```bash
 git clone https://github.com/datascale-ai/opentalking.git
 cd opentalking
@@ -144,6 +148,12 @@ cp .env.example .env
 ```
 
 Edit `.env` and configure at least an LLM. The default TTS can use the keyless `edge` voice. LLM, STT, and TTS are independent providers; see [Configuration](docs/en/user-guide/configuration.md) and [LLM / STT](docs/en/model-deployment/llm-stt.md).
+
+The WebUI also includes a collapsed **Static Config** section at the top of the
+real-time conversation settings panel. Operators can update common LLM / TTS /
+STT API keys, endpoints, models, and voices there without restarting the whole
+service; new requests and new sessions use the refreshed configuration. See
+[Configuration](docs/en/user-guide/configuration.md#runtime-configuration-from-the-webui).
 
 ```bash
 bash scripts/start_unified.sh --mock

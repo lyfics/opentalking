@@ -62,6 +62,26 @@ OpenTalking 从两个来源加载配置，按优先级从高到低：
 
 切换 DashScope 实时 TTS 与 ElevenLabs 的配置，参见 [§4 进阶调优](#4)。
 
+### 通过 WebUI 热更新运行时配置
+
+WebUI 在实时对话左侧设置面板顶部提供默认收起的 **静态配置** 区域。该区域通过
+`/runtime-config` 读取当前 LLM、TTS、STT 配置，并通过 `/runtime-config/apply`
+应用更新。
+
+当运维或体验用户需要调整常见 API 配置时，可以直接在这里修改，不需要重启整个服务：
+
+- LLM Base URL、模型名、API key。
+- TTS provider、Edge 音色、DashScope 模型、DashScope 音色、DashScope key。
+- STT provider、STT 模型、DashScope STT key。
+
+密钥输入框加载后始终保持为空，这是为了避免明文回显。输入框留空时会保留已经保存的
+key；填写新 key 并点击 **应用配置** 后，OpenTalking 会把变更写入 `.env`，创建带时间戳的
+备份文件，刷新 settings 缓存，并尽可能更新正在运行的 LLM client。新的请求和新会话会使用
+更新后的配置。如果已经运行中的会话仍表现为旧的 TTS 或 STT 配置，停止该会话后重新启动即可。
+
+运行时配置接口只修改上面列出的通用字段。未在面板展示的 provider 专属配置，例如本地模型目录
+或服务 URL，仍应通过环境变量或 YAML 配置。
+
 ## 2. 推理服务
 
 本节变量仅在客户端选择 `wav2lip`、`musetalk`、`flashtalk` 或 `flashhead` 时生效。

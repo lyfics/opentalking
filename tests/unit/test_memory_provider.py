@@ -614,6 +614,60 @@ def test_mem0_provider_raw_items_use_direct_memory_create_when_available() -> No
     asyncio.run(run())
 
 
+def test_mem0_provider_create_library_uses_local_registry_when_mem0_is_unavailable() -> None:
+    class BrokenMem0:
+        def get_all(self, **_kwargs: object) -> None:
+            raise RuntimeError("mem0 unavailable")
+
+        def add(self, _payload: object, **_kwargs: object) -> None:
+            raise RuntimeError("mem0 unavailable")
+
+    async def run() -> None:
+        provider = Mem0MemoryProvider(client=BrokenMem0())
+
+        created = await provider.create_library(
+            library_id="demo",
+            name="Demo",
+            profile_id="default",
+            character_id="avatar-a",
+        )
+        listed = await provider.list_libraries(
+            profile_id="default",
+            character_id="avatar-a",
+        )
+
+        assert created.id == "demo"
+        assert [library.id for library in listed] == ["demo"]
+
+    asyncio.run(run())
+
+
+def test_mem0_provider_add_items_returns_local_items_when_mem0_is_unavailable() -> None:
+    class BrokenMem0:
+        def add(self, _payload: object, **_kwargs: object) -> None:
+            raise RuntimeError("mem0 unavailable")
+
+    async def run() -> None:
+        provider = Mem0MemoryProvider(client=BrokenMem0())
+
+        imported = await provider.add_items(
+            library_id="default",
+            profile_id="default",
+            character_id="avatar-a",
+            items=[MemoryItem(id="item_1", text="User likes tea.")],
+        )
+        listed = await provider.list_items(
+            library_id="default",
+            profile_id="default",
+            character_id="avatar-a",
+        )
+
+        assert imported == 1
+        assert [item.text for item in listed] == ["User likes tea."]
+
+    asyncio.run(run())
+
+
 def test_mem0_provider_searches_with_scope_and_filters_library() -> None:
     class FakeMem0:
         def __init__(self) -> None:

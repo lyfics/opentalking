@@ -6,12 +6,15 @@ import logging
 import uuid
 from collections.abc import Sequence
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any
 
 from opentalking.providers.memory.base import MemoryProvider
 from opentalking.providers.memory.schemas import MemoryItem, MemoryLibrary, utc_now_iso
+from opentalking.providers.memory.sqlite_provider import SQLiteMemoryProvider
 
 log = logging.getLogger(__name__)
+_MEM0_UI_TIMEOUT_SEC = 1.5
 
 
 class _Mem0RawLogFilter(logging.Filter):
@@ -114,7 +117,11 @@ class Mem0MemoryProvider(MemoryProvider):
         *,
         config: dict[str, Any] | None = None,
         client: Any | None = None,
+        local_path: str | Path | None = None,
     ) -> None:
+        self._local = (
+            InMemoryMemoryProvider() if local_path is None else SQLiteMemoryProvider(local_path)
+        )
         if client is not None:
             self._client = client
         else:
@@ -126,6 +133,32 @@ class Mem0MemoryProvider(MemoryProvider):
                 self._client = memory_cls(config=cfg) if cfg else memory_cls()
 
     async def list_libraries(
+        self,
+        *,
+        profile_id: str,
+        character_id: str,
+    ) -> list[MemoryLibrary]:
+        local_libraries = await self._local.list_libraries(
+            profile_id=profile_id,
+            character_id=character_id,
+        )
+        libraries: dict[str, MemoryLibrary] = {library.id: library for library in local_libraries}
+        try:
+            mem0_libraries = await asyncio.wait_for(
+                self._list_mem0_libraries(profile_id=profile_id, character_id=character_id),
+                timeout=_MEM0_UI_TIMEOUT_SEC,
+            )
+        except TimeoutError:
+            log.warning("mem0 library listing timed out; using local memory registry")
+            mem0_libraries = []
+        except Exception:  # noqa: BLE001
+            log.warning("mem0 library listing failed; using local memory registry", exc_info=True)
+            mem0_libraries = []
+        for library in mem0_libraries:
+            libraries.setdefault(library.id, library)
+        return sorted(libraries.values(), key=lambda row: row.updated_at, reverse=True)
+
+    async def _list_mem0_libraries(
         self,
         *,
         profile_id: str,
@@ -171,33 +204,11 @@ class Mem0MemoryProvider(MemoryProvider):
         profile_id: str,
         character_id: str,
     ) -> MemoryLibrary:
-        now = utc_now_iso()
-        library = MemoryLibrary(
-            id=library_id or "default",
-            name=name or "Default memory",
+        library = await self._local.create_library(
+            library_id=library_id,
+            name=name,
             profile_id=profile_id,
             character_id=character_id,
-            created_at=now,
-            updated_at=now,
-        )
-        marker = MemoryItem(
-            id=f"lib_{uuid.uuid4().hex}",
-            text=f"Memory library: {library.name}",
-            type="note",
-            metadata={
-                "library_id": library.id,
-                "library_name": library.name,
-                "library_created_at": now,
-                "library_updated_at": now,
-                "opentalking_library_marker": True,
-            },
-            created_at=now,
-        )
-        await self.add_items(
-            library_id=library.id,
-            profile_id=profile_id,
-            character_id=character_id,
-            items=[marker],
         )
         return library
 
@@ -220,13 +231,41 @@ class Mem0MemoryProvider(MemoryProvider):
         profile_id: str,
         character_id: str,
     ) -> list[MemoryItem]:
-        items = await self._all_scoped_items(profile_id=profile_id, character_id=character_id)
-        return [
+        local_items = await self._local.list_items(
+            library_id=library_id,
+            profile_id=profile_id,
+            character_id=character_id,
+        )
+        seen = {item.id for item in local_items}
+        seen_signatures = {
+            (item.text.strip(), item.type)
+            for item in local_items
+            if item.text.strip()
+        }
+        try:
+            raw_mem0_items = await asyncio.wait_for(
+                self._all_scoped_items(profile_id=profile_id, character_id=character_id),
+                timeout=_MEM0_UI_TIMEOUT_SEC,
+            )
+        except TimeoutError:
+            log.warning("mem0 item listing timed out; using local memory items")
+            raw_mem0_items = []
+        except Exception:  # noqa: BLE001
+            log.warning("mem0 item listing failed; using local memory items", exc_info=True)
+            raw_mem0_items = []
+        mem0_items = [
             item
-            for item in items
+            for item in raw_mem0_items
             if item.metadata.get("library_id") == library_id
             and not item.metadata.get("opentalking_library_marker")
         ]
+        deduped_mem0_items = [
+            item
+            for item in mem0_items
+            if item.id not in seen
+            and (item.text.strip(), item.type) not in seen_signatures
+        ]
+        return [*local_items, *deduped_mem0_items]
 
     async def add_items(
         self,
@@ -236,6 +275,12 @@ class Mem0MemoryProvider(MemoryProvider):
         character_id: str,
         items: Sequence[MemoryItem],
     ) -> int:
+        local_imported = await self._local.add_items(
+            library_id=library_id,
+            profile_id=profile_id,
+            character_id=character_id,
+            items=items,
+        )
         imported = 0
         for item in items:
             text = item.text.strip()
@@ -252,14 +297,22 @@ class Mem0MemoryProvider(MemoryProvider):
                     "created_at": item.created_at or utc_now_iso(),
                 }
             )
-            imported += await self._add(
-                text,
-                profile_id=profile_id,
-                character_id=character_id,
-                metadata=metadata,
-                infer=False,
-            )
-        return imported
+            try:
+                imported += await asyncio.wait_for(
+                    self._add(
+                        text,
+                        profile_id=profile_id,
+                        character_id=character_id,
+                        metadata=metadata,
+                        infer=False,
+                    ),
+                    timeout=_MEM0_UI_TIMEOUT_SEC,
+                )
+            except TimeoutError:
+                log.warning("mem0 raw add timed out; kept memory in local store")
+            except Exception:  # noqa: BLE001
+                log.warning("mem0 raw add failed; kept memory in local store", exc_info=True)
+        return local_imported or imported
 
     async def search_items(
         self,
@@ -322,13 +375,32 @@ class Mem0MemoryProvider(MemoryProvider):
             "created_at": utc_now_iso(),
         }
         merged_metadata.update(metadata or {})
-        return await self._add(
-            messages,
-            profile_id=profile_id,
-            character_id=character_id,
-            metadata=merged_metadata,
-            infer=True,
-        )
+        try:
+            return await self._add(
+                messages,
+                profile_id=profile_id,
+                character_id=character_id,
+                metadata=merged_metadata,
+                infer=True,
+            )
+        except Exception:  # noqa: BLE001
+            log.warning("mem0 smart add failed; storing conversation turns locally", exc_info=True)
+            fallback_items = [
+                MemoryItem(
+                    id=f"turn_{uuid.uuid4().hex}",
+                    text=message["content"],
+                    type="chat_turn",
+                    metadata={**merged_metadata, "role": message["role"], "mem0_fallback": True},
+                )
+                for message in messages
+                if message.get("content")
+            ]
+            return await self._local.add_items(
+                library_id=library_id,
+                profile_id=profile_id,
+                character_id=character_id,
+                items=fallback_items,
+            )
 
     async def add_summary(
         self,
@@ -354,13 +426,29 @@ class Mem0MemoryProvider(MemoryProvider):
             "created_at": utc_now_iso(),
         }
         merged_metadata.update(metadata or {})
-        return await self._add(
-            text,
-            profile_id=profile_id,
-            character_id=character_id,
-            metadata=merged_metadata,
-            infer=False,
-        )
+        try:
+            return await self._add(
+                text,
+                profile_id=profile_id,
+                character_id=character_id,
+                metadata=merged_metadata,
+                infer=False,
+            )
+        except Exception:  # noqa: BLE001
+            log.warning("mem0 summary add failed; storing summary locally", exc_info=True)
+            return await self._local.add_items(
+                library_id=library_id,
+                profile_id=profile_id,
+                character_id=character_id,
+                items=[
+                    MemoryItem(
+                        id=f"summary_{uuid.uuid4().hex}",
+                        text=text,
+                        type="summary",
+                        metadata={**merged_metadata, "mem0_fallback": True},
+                    )
+                ],
+            )
 
     async def delete_item(
         self,
@@ -378,6 +466,13 @@ class Mem0MemoryProvider(MemoryProvider):
         )
         if item is None:
             return False
+        if item.metadata.get("mem0_fallback") or not item.metadata.get("_mem0_id"):
+            return await self._local.delete_item(
+                library_id=library_id,
+                item_id=item_id,
+                profile_id=profile_id,
+                character_id=character_id,
+            )
         delete = getattr(self._client, "delete", None)
         if not callable(delete):
             return False

@@ -169,12 +169,11 @@ export function MemoryPanel({
         {libraries.length ? (
           libraries.map((library) => {
             const selected = library.id === selectedLibraryId && memoryEnabled;
-            const memoryLibraryReady = library.memory_count > 0;
             return (
               <button
                 key={library.id}
                 type="button"
-                disabled={disabled || !memoryLibraryReady}
+                disabled={disabled}
                 onClick={() => {
                   const nextSelected = selected ? null : library.id;
                   onLibrarySelect(nextSelected);
@@ -183,14 +182,12 @@ export function MemoryPanel({
                 className={`flex min-h-9 w-full items-center justify-between gap-2 rounded-md border px-2.5 py-2 text-left text-xs font-semibold transition ${
                   selected
                     ? "border-cyan-300 bg-white text-cyan-800 shadow-sm"
-                    : memoryLibraryReady
-                      ? "border-slate-200 bg-white text-slate-700 hover:border-cyan-200 hover:text-cyan-700"
-                      : "cursor-not-allowed border-slate-100 bg-slate-50 text-slate-400"
+                    : "border-slate-200 bg-white text-slate-700 hover:border-cyan-200 hover:text-cyan-700"
                 } ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
               >
                 <span className="min-w-0 truncate">{library.name || library.id}</span>
-                <span className={`shrink-0 text-[11px] ${selected ? "text-cyan-700" : memoryLibraryReady ? "text-emerald-600" : "text-slate-400"}`}>
-                  {selected ? "已挂载" : memoryLibraryReady ? "已就绪" : "空库"}
+                <span className={`shrink-0 text-[11px] ${selected ? "text-cyan-700" : "text-slate-500"}`}>
+                  {selected ? "已挂载" : `${library.memory_count} 条`}
                 </span>
               </button>
             );

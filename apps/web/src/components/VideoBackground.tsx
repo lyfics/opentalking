@@ -1,17 +1,18 @@
-import { forwardRef } from "react";
+import { forwardRef, type VideoHTMLAttributes } from "react";
 
-type VideoBackgroundProps = {
+type VideoBackgroundProps = VideoHTMLAttributes<HTMLVideoElement> & {
   className?: string;
 };
 
 export const VideoBackground = forwardRef<HTMLVideoElement, VideoBackgroundProps>(
-  ({ className }, ref) => (
+  ({ className, ...props }, ref) => (
     <video
       ref={ref}
       className={className ?? "absolute inset-0 h-full w-full object-contain"}
       autoPlay
       playsInline
       muted
+      {...props}
     />
   ),
 );

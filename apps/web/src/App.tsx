@@ -21,6 +21,7 @@ import {
 } from "./components/VideoCreationWorkspace";
 import {
   ApiError,
+  applyRuntimeConfig,
   apiDelete,
   apiGet,
   apiPost,
@@ -29,6 +30,7 @@ import {
   apiUploadFile,
   buildApiUrl,
   getMemoryLibraries,
+  loadRuntimeConfig,
   uploadExportVideo,
   type AvatarKnowledgeBasesResponse,
   type AvatarSummary,
@@ -38,6 +40,8 @@ import {
   type KnowledgeBasesResponse,
   type PersonaSummary,
   type PersonasResponse,
+  type RuntimeConfigApplyInput,
+  type RuntimeConfigResponse,
   type SessionKnowledgeBasesRequest,
   type SessionKnowledgeBasesResponse,
   type VoiceCatalogItem,
@@ -508,7 +512,7 @@ function validateAudioProviderConfigBeforeStart({
       : "当前 TTS API 缺少 OPENTALKING_TTS_DASHSCOPE_API_KEY");
   }
   if (missing.length === 0) return null;
-  return `${missing.join("；")}。请在后端 .env 配置后重启服务。`;
+  return `${missing.join("；")}。请展开左侧最上方“静态配置”填写后点击应用配置。`;
 }
 
 type SpeakAudioResponse = { session_id: string; status: string; text: string };
@@ -823,6 +827,8 @@ function realtimeRecordingStartErrorMessage(error: unknown): string {
 
 export default function App() {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const realtimeAudioContextRef = useRef<AudioContext | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const realtimeRecorderRef = useRef<MediaRecorder | null>(null);
@@ -845,6 +851,57 @@ export default function App() {
   /** 首帧已进入 WebRTC 后再叠字幕（与口型对齐）；旧版 Worker 无 speech.media_started 时用定时回退 */
   const subtitleMediaReadyRef = useRef(false);
   const subtitleFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const primeRealtimeAudioPlayback = useCallback((): AudioContext | null => {
+    const AudioContextCtor = window.AudioContext
+      ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextCtor) return null;
+
+    let ctx = realtimeAudioContextRef.current;
+    if (!ctx || ctx.state === "closed") {
+      ctx = new AudioContextCtor({ latencyHint: "interactive" });
+      realtimeAudioContextRef.current = ctx;
+    }
+    void ctx.resume().catch((error) => {
+      console.warn("Realtime AudioContext resume failed", error);
+    });
+
+    try {
+      const source = ctx.createBufferSource();
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      source.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
+      source.connect(gain);
+      gain.connect(ctx.destination);
+      source.start();
+      source.stop(ctx.currentTime + 0.01);
+    } catch {
+      /* best effort: some browsers only need resume() */
+    }
+
+    const audioEl = audioRef.current;
+    if (audioEl) {
+      audioEl.autoplay = true;
+      audioEl.muted = Boolean(ctx);
+      audioEl.volume = ctx ? 0 : 1;
+      if (audioEl.srcObject) {
+        void audioEl.play().catch((error) => {
+          console.warn("Realtime audio element unlock failed", error);
+        });
+      }
+    }
+    return ctx;
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      const ctx = realtimeAudioContextRef.current;
+      realtimeAudioContextRef.current = null;
+      if (ctx && ctx.state !== "closed") {
+        void ctx.close().catch(() => {});
+      }
+    };
+  }, []);
 
   // Data
   const [avatars, setAvatars] = useState<AvatarSummary[]>([]);
@@ -883,12 +940,16 @@ export default function App() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [queueInfo, setQueueInfo] = useState<QueueInfo | null>(null);
   const [expiringCountdown, setExpiringCountdown] = useState<number | null>(null);
+  const [remoteVideoReady, setRemoteVideoReady] = useState(false);
 
   // Chat
   const [messages, setMessages] = useState<Message[]>([]);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [currentSubtitle, setCurrentSubtitle] = useState("");
   const [, setRuntimeStatus] = useState<HealthResponse | null>(null);
+  const [runtimeConfig, setRuntimeConfig] = useState<RuntimeConfigResponse | null>(null);
+  const [runtimeConfigLoading, setRuntimeConfigLoading] = useState(false);
+  const [runtimeConfigApplying, setRuntimeConfigApplying] = useState(false);
 
   const clearSubtitleFallbackTimer = useCallback(() => {
     if (subtitleFallbackTimerRef.current !== null) {
@@ -1045,6 +1106,60 @@ export default function App() {
       setToasts((prev) => prev.filter((toast) => toast.id !== id));
     }, tone === "error" ? 5200 : 3600);
   }, []);
+
+  const refreshRuntimeConfig = useCallback(async () => {
+    setRuntimeConfigLoading(true);
+    try {
+      const next = await loadRuntimeConfig();
+      setRuntimeConfig(next);
+      return next;
+    } catch (error) {
+      console.warn("load runtime config failed", error);
+      const detail = error instanceof ApiError ? error.detail : null;
+      notify(detail ? `读取静态配置失败：${detail}` : "读取静态配置失败，请查看后端日志。", "error");
+      return null;
+    } finally {
+      setRuntimeConfigLoading(false);
+    }
+  }, [notify]);
+
+  const handleApplyRuntimeConfig = useCallback(async (input: RuntimeConfigApplyInput) => {
+    setRuntimeConfigApplying(true);
+    try {
+      const next = await applyRuntimeConfig(input);
+      setRuntimeConfig(next);
+      const provider = normalizeTtsProvider(next.tts.provider, ttsProvider);
+      setTtsProvider(provider);
+      if (next.tts.edge_voice) {
+        setEdgeVoice(next.tts.edge_voice);
+      }
+      if (next.tts.dashscope_model) {
+        setQwenModel(next.tts.dashscope_model);
+      }
+      if (next.tts.dashscope_voice) {
+        setQwenVoice(next.tts.dashscope_voice);
+      }
+      const nextSttProvider = normalizeAsrProvider(next.stt.provider, asrProvider || "dashscope");
+      setAsrProvider(nextSttProvider);
+      setAsrModel(next.stt.model || STT_MODEL_BY_PROVIDER[nextSttProvider] || STT_MODEL_BY_PROVIDER.dashscope);
+      try {
+        const health = await apiGet<HealthResponse>("/health");
+        setRuntimeStatus(health);
+      } catch (error) {
+        console.warn("refresh health after runtime config failed", error);
+      }
+      notify(connection === "live"
+        ? "静态配置已热更新，后续请求会使用新配置；如当前会话仍显示旧效果，请重新启动数字人。"
+        : "静态配置已热更新，新会话将使用新配置。", "success");
+    } catch (error) {
+      console.warn("apply runtime config failed", error);
+      const detail = error instanceof ApiError ? error.detail : null;
+      notify(detail ? `应用静态配置失败：${detail}` : "应用静态配置失败，请查看后端日志。", "error");
+      throw error;
+    } finally {
+      setRuntimeConfigApplying(false);
+    }
+  }, [asrProvider, connection, notify, ttsProvider]);
 
   const syncSessionKnowledgeBases = useCallback((knowledgeBaseIds: string[]) => {
     const sid = sessionIdRef.current;
@@ -1583,6 +1698,27 @@ export default function App() {
     }
   }, [messages]);
 
+  useEffect(() => {
+    if (connection !== "live" && connection !== "expiring") return;
+    primeRealtimeAudioPlayback();
+    const videoEl = videoRef.current;
+    if (videoEl) {
+      videoEl.muted = true;
+      void videoEl.play().catch((error) => {
+        console.warn("WebRTC video playback resume failed while live", error);
+      });
+    }
+    const audioEl = audioRef.current;
+    if (audioEl && audioEl.srcObject) {
+      const useWebAudio = Boolean(realtimeAudioContextRef.current);
+      audioEl.muted = useWebAudio;
+      audioEl.volume = useWebAudio ? 0 : 1;
+      void audioEl.play().catch((error) => {
+        console.warn("WebRTC audio playback resume failed while live", error);
+      });
+    }
+  }, [connection, primeRealtimeAudioPlayback, remoteVideoReady]);
+
   const closePeerConnection = useCallback(() => {
     if (pcRef.current) {
       pcRef.current.close();
@@ -1592,6 +1728,11 @@ export default function App() {
       for (const track of remoteStreamRef.current.getTracks()) track.stop();
       remoteStreamRef.current = null;
     }
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.srcObject = null;
+    }
+    setRemoteVideoReady(false);
   }, []);
 
   const releaseSession = useCallback(async (sid: string, keepalive = false) => {
@@ -1693,13 +1834,15 @@ export default function App() {
   useEffect(() => {
     void (async () => {
       try {
-        const [av, mo, health] = await Promise.all([
+        const [av, mo, health, runtime] = await Promise.all([
           apiGet<AvatarSummary[]>("/avatars"),
           apiGet<{ models: string[]; statuses?: ModelStatus[]; default_model?: string | null }>("/models"),
           apiGet<HealthResponse>("/health"),
+          loadRuntimeConfig(),
           loadVoices(),
         ]);
         setRuntimeStatus(health);
+        setRuntimeConfig(runtime);
         setAvatars(av);
         setModels(mo.models);
         setAsrProvider((prev) => {
@@ -1869,6 +2012,7 @@ export default function App() {
   // ---------- Actions ----------
   const handleStart = useCallback(async () => {
     if (!videoRef.current) return;
+    const audioContext = primeRealtimeAudioPlayback();
     clearSubtitleState();
     const lockedAsrProvider = normalizeAsrProvider(asrProvider, "dashscope");
     let latestRuntimeStatus: HealthResponse | null = null;
@@ -1971,17 +2115,39 @@ export default function App() {
       }
 
       closePeerConnection();
+      setRemoteVideoReady(false);
       const playback = await startPlayback(created.session_id, videoRef.current!, {
+        audioEl: audioRef.current,
+        audioContext: audioContext ?? realtimeAudioContextRef.current,
         onRemoteStream: (remoteStream) => {
           remoteStreamRef.current = remoteStream;
+        },
+        onRemoteTrack: (track) => {
+          if (track.kind === "video") {
+            setRemoteVideoReady(true);
+          }
         },
       });
       pcRef.current = playback.pc;
       remoteStreamRef.current = playback.remoteStream;
       setActiveAsrProvider(lockedAsrProvider);
-      videoRef.current!.muted = false;
       setConnection("live");
-      await apiPost(`/sessions/${created.session_id}/start`, {});
+      primeRealtimeAudioPlayback();
+      videoRef.current!.muted = true;
+      void videoRef.current!.play().catch((error) => {
+        console.warn("WebRTC video playback resume failed after connection", error);
+      });
+      if (audioRef.current) {
+        const useWebAudio = Boolean(realtimeAudioContextRef.current);
+        audioRef.current.muted = useWebAudio;
+        audioRef.current.volume = useWebAudio ? 0 : 1;
+        void audioRef.current.play().catch((error) => {
+          console.warn("WebRTC audio playback resume failed after connection", error);
+        });
+      }
+      void apiPost(`/sessions/${created.session_id}/start`, {}).catch((error) => {
+        console.warn("Failed to mark session ready", error);
+      });
       notify("会话已连接，可以开始文本、语音或音频驱动。", "success");
     } catch (error) {
       if (createdSessionId) {
@@ -2009,6 +2175,7 @@ export default function App() {
     memoryLibraryId,
     model,
     notify,
+    primeRealtimeAudioPlayback,
     qwenVoice,
     releaseSession,
     requestAvatarPrewarm,
@@ -2199,6 +2366,7 @@ export default function App() {
   const handleSend = useCallback(
     (text: string) => {
       if (!sessionId || !text) return;
+      primeRealtimeAudioPlayback();
       const pendingId = makeId();
       const activeAssistantId = streamingAssistantMsgIdRef.current;
       const previousPendingId = pendingAssistantMsgIdRef.current;
@@ -2231,7 +2399,7 @@ export default function App() {
         notify(`发送失败：${detail}`, "error");
       });
     },
-    [appendAssistantError, edgeVoice, isSpeaking, notify, qwenModel, qwenVoice, sessionId, ttsProvider],
+    [appendAssistantError, edgeVoice, isSpeaking, notify, primeRealtimeAudioPlayback, qwenModel, qwenVoice, sessionId, ttsProvider],
   );
 
   /** 流式 STT（WebSocket PCM）成功后仅追加本地消息（speak 已由后端入队） */
@@ -2532,6 +2700,9 @@ export default function App() {
   }, [closePeerConnection, releaseSession]);
 
   const currentAvatar = avatars.find((a) => a.id === avatarId) ?? null;
+  const currentAvatarPreviewUrl = currentAvatar
+    ? buildApiUrl(`/avatars/${encodeURIComponent(currentAvatar.id)}/preview`)
+    : "";
   const sessionConfigLocked = connection === "connecting" || connection === "queued" || connection === "live" || connection === "expiring";
   const effectiveAsrProvider = activeAsrProvider || normalizeAsrProvider(asrProvider, "dashscope");
   const showStart = connection === "idle" || connection === "error" || connection === "connecting" || connection === "queued";
@@ -2695,6 +2866,11 @@ export default function App() {
             onQwenVoiceChange={setQwenVoice}
             qwenVoiceOptions={bailianVoices}
             voiceApplyNotice={voiceApplyNotice}
+            runtimeConfig={runtimeConfig}
+            runtimeConfigLoading={runtimeConfigLoading}
+            runtimeConfigApplying={runtimeConfigApplying}
+            onRuntimeConfigRefresh={() => void refreshRuntimeConfig()}
+            onRuntimeConfigApply={handleApplyRuntimeConfig}
             ttsPreviewText={ttsPreviewText}
             onTtsPreviewTextChange={setTtsPreviewText}
             onPreviewTts={() => void handlePreviewTts()}
@@ -2738,7 +2914,30 @@ export default function App() {
                       : "relative h-full w-full"
                   }
                 >
-                  <VideoBackground ref={videoRef} className="absolute inset-0 h-full w-full object-contain" />
+                  {currentAvatarPreviewUrl && !showStart && !remoteVideoReady ? (
+                    <img
+                      src={currentAvatarPreviewUrl}
+                      alt={currentAvatar?.name ?? currentAvatar?.id ?? "数字人预览"}
+                      className="absolute inset-0 h-full w-full object-contain"
+                    />
+                  ) : null}
+                  <VideoBackground
+                    ref={videoRef}
+                    className="absolute inset-0 h-full w-full object-contain"
+                    muted
+                    onLoadedMetadata={() => setRemoteVideoReady(true)}
+                    onLoadedData={() => setRemoteVideoReady(true)}
+                    onCanPlay={() => setRemoteVideoReady(true)}
+                    onPlaying={() => setRemoteVideoReady(true)}
+                  />
+                  <audio
+                    ref={audioRef}
+                    autoPlay
+                    playsInline
+                    className="pointer-events-none absolute h-px w-px opacity-0"
+                    tabIndex={-1}
+                    aria-hidden
+                  />
                 </div>
               </div>
 

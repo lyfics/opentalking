@@ -117,6 +117,57 @@ export async function apiUploadFile<T>(path: string, fieldName: string, file: Fi
   return apiPostForm<T>(path, form);
 }
 
+export type RuntimeConfigResponse = {
+  llm: {
+    base_url: string;
+    model: string;
+    api_key_set: boolean;
+  };
+  tts: {
+    provider: string;
+    enabled_providers: string[];
+    edge_voice: string;
+    dashscope_model: string;
+    dashscope_voice: string;
+    api_key_set: boolean;
+    dashscope_api_key_set: boolean;
+    service_url_set: boolean;
+  };
+  stt: {
+    provider: string;
+    enabled_providers: string[];
+    model: string;
+    api_key_set: boolean;
+    service_url_set: boolean;
+  };
+  applied?: boolean;
+  requires_new_session?: boolean;
+  live_runners_refreshed?: number;
+};
+
+export type RuntimeConfigApplyInput = {
+  llm_base_url?: string;
+  llm_api_key?: string;
+  llm_model?: string;
+  tts_provider?: string;
+  tts_edge_voice?: string;
+  tts_dashscope_api_key?: string;
+  tts_dashscope_model?: string;
+  tts_dashscope_voice?: string;
+  stt_provider?: string;
+  stt_model?: string;
+  stt_dashscope_api_key?: string;
+  sync_dashscope_api_key?: boolean;
+};
+
+export function loadRuntimeConfig(): Promise<RuntimeConfigResponse> {
+  return apiGet<RuntimeConfigResponse>("/runtime-config");
+}
+
+export function applyRuntimeConfig(input: RuntimeConfigApplyInput): Promise<RuntimeConfigResponse> {
+  return apiPost<RuntimeConfigResponse>("/runtime-config/apply", input);
+}
+
 export type ExportVideoKind = "realtime_dialogue" | "video_clone" | "video_creation";
 
 export type ExportVideoItem = {

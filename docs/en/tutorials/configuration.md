@@ -67,6 +67,32 @@ and does not require an API key.
 Configuration for DashScope realtime TTS and ElevenLabs is documented in
 [§4 Advanced tuning](#4-advanced-tuning).
 
+### Runtime configuration from the WebUI
+
+The WebUI includes a collapsed **Static Config** section at the top of the
+real-time conversation settings panel. It reads the active LLM, TTS, and STT
+configuration from `/runtime-config` and applies updates through
+`/runtime-config/apply`.
+
+Use this panel when an operator needs to change common API settings without
+restarting the whole service:
+
+- LLM base URL, model, and API key.
+- TTS provider, Edge voice, DashScope model, DashScope voice, and DashScope key.
+- STT provider, STT model, and DashScope STT key.
+
+Secret fields are intentionally blank after loading. If a key input is left
+empty, the saved key is kept. When a key is entered and **Apply Config** is
+clicked, OpenTalking writes the update to `.env`, creates a timestamped backup,
+refreshes the settings cache, and updates live LLM clients when possible.
+New requests and new sessions use the updated values. If an already-running
+session still shows old TTS or STT behavior, stop that session and start a new
+one.
+
+The runtime endpoint only edits the common fields listed above. Provider-specific
+options not shown in the panel, such as local model directories or service URLs,
+should still be configured with environment variables or YAML.
+
 ## 2. Inference service
 
 The variables in this section are consulted only when the client selects `wav2lip`,

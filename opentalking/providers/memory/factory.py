@@ -47,8 +47,8 @@ def _split_mem0_config(settings: Settings) -> dict[str, Any]:
     llm = _model_config(
         provider=settings.memory_mem0_llm_provider,
         model=settings.memory_mem0_llm_model,
-        api_key=settings.memory_mem0_llm_api_key,
-        base_url=settings.memory_mem0_llm_base_url,
+        api_key=settings.memory_mem0_llm_api_key or settings.llm_api_key,
+        base_url=settings.memory_mem0_llm_base_url or settings.llm_base_url,
     )
     if llm:
         config["llm"] = llm
@@ -56,8 +56,8 @@ def _split_mem0_config(settings: Settings) -> dict[str, Any]:
     embedder = _model_config(
         provider=settings.memory_mem0_embedder_provider,
         model=settings.memory_mem0_embedder_model,
-        api_key=settings.memory_mem0_embedder_api_key,
-        base_url=settings.memory_mem0_embedder_base_url,
+        api_key=settings.memory_mem0_embedder_api_key or settings.llm_api_key,
+        base_url=settings.memory_mem0_embedder_base_url or settings.llm_base_url,
     )
     if embedder:
         embedder_config = embedder.setdefault("config", {})
@@ -107,7 +107,7 @@ def build_memory_provider() -> MemoryProvider:
     if provider in {"sqlite", "local"}:
         return SQLiteMemoryProvider(settings.memory_sqlite_path)
     if provider == "mem0":
-        return Mem0MemoryProvider(config=_mem0_config(settings))
+        return Mem0MemoryProvider(config=_mem0_config(settings), local_path=settings.memory_sqlite_path)
     if provider in {"memory", "inmemory", "in-memory"}:
         return InMemoryMemoryProvider()
     raise ValueError(f"unsupported memory provider: {settings.memory_provider}")

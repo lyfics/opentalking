@@ -43,22 +43,10 @@ type AvatarSelectionStageProps = {
 };
 
 function AvatarPreviewImage({ avatar, className }: { avatar: AvatarSummary; className: string }) {
-  return avatar.has_preview_video ? (
-    <video
-      src={buildApiUrl(`/avatars/${encodeURIComponent(avatar.id)}/preview-video`)}
-      className={className}
-      autoPlay
-      muted
-      loop
-      playsInline
-      preload="metadata"
-      onError={(event) => {
-        event.currentTarget.style.display = "none";
-      }}
-    />
-  ) : (
+  const previewSrc = buildApiUrl(`/avatars/${encodeURIComponent(avatar.id)}/preview`);
+  return (
     <img
-      src={buildApiUrl(`/avatars/${encodeURIComponent(avatar.id)}/preview`)}
+      src={previewSrc}
       alt={avatar.name ?? avatar.id}
       className={className}
       onError={(event) => {
@@ -283,7 +271,7 @@ export function AvatarSelectionStage({
           </div>
         </section>
 
-        <section className="flex min-h-[24rem] flex-col overflow-hidden rounded-lg border border-slate-200 bg-slate-50 xl:min-h-0">
+        <section className="flex min-h-[24rem] flex-col overflow-x-hidden overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 xl:min-h-0">
           {selectedAvatar ? (
             <>
               <div className="flex items-start justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3">
@@ -297,7 +285,7 @@ export function AvatarSelectionStage({
                   形象资产
                 </span>
               </div>
-              <div className="relative flex h-[min(42vh,380px)] shrink-0 items-center justify-center bg-slate-950 p-4 xl:h-auto xl:min-h-0 xl:flex-1">
+              <div className="relative flex h-[min(42vh,380px)] min-h-[220px] shrink-0 items-center justify-center bg-slate-950 p-4">
                 <AvatarPreviewImage
                   avatar={selectedAvatar}
                   className="max-h-full max-w-full rounded-md object-contain shadow-2xl shadow-slate-950/40"
