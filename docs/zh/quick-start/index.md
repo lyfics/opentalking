@@ -341,6 +341,11 @@ API key；使用 DashScope TTS 时需要配置 `OPENTALKING_TTS_DASHSCOPE_API_KE
 
 查看 [Docker 部署](docker-deployment.md)，了解容器化运行方式。
 
+### 镜像平台操作
+
+查看 [镜像平台操作文档](image-platform-operation.md)，了解镜像平台实例创建、5173 访问、
+静态配置、实时对话、视频创作和资产库操作。
+
 ### WebUI 使用
 
 查看 [WebUI 使用](../usage/webui/basic.md)，继续了解页面布局、Avatar、音色和会话操作。

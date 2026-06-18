@@ -23,6 +23,7 @@ class FakeWebSocket:
                 "height": 704,
                 "width": 416,
                 "chunk_samples": 8000,
+                "lookahead_chunks": 0,
             }
         ]
 
@@ -166,6 +167,34 @@ def test_init_session_prefers_response_chunk_samples(tmp_path: Path) -> None:
 
     assert client.slice_len == 28
     assert client.audio_chunk_samples == 8000
+
+
+@pytest.mark.asyncio
+async def test_init_session_stores_response_lookahead_chunks(tmp_path: Path) -> None:
+    ref = tmp_path / "reference.png"
+    ref.write_bytes(b"image-bytes")
+    client = FlashTalkWSClient("ws://example.test/v1/audio2video/quicktalk")
+    ws = FakeWebSocket(
+        responses=[
+            {
+                "type": "init_ok",
+                "frame_num": 4,
+                "motion_frames_num": 1,
+                "slice_len": 4,
+                "fps": 25,
+                "height": 900,
+                "width": 674,
+                "chunk_samples": 2560,
+                "lookahead_chunks": 1,
+            }
+        ]
+    )
+    client._ws = ws
+
+    await client.init_session(ref_image=ref)
+
+    assert client.audio_chunk_samples == 2560
+    assert client.lookahead_chunks == 1
 
 
 @pytest.mark.asyncio

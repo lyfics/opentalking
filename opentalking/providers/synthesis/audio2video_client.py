@@ -106,6 +106,7 @@ class OmniRTAudio2VideoClient:
         self.width = int(getattr(self._ws_client, "width", 0) or 0)
         self.sample_rate = int(getattr(self._ws_client, "sample_rate", 16000) or 16000)
         self.audio_chunk_samples = int(getattr(self._ws_client, "audio_chunk_samples", 0) or 0)
+        self.lookahead_chunks = int(getattr(self._ws_client, "lookahead_chunks", 0) or 0)
 
     async def init_session(self, **kwargs: Any) -> dict[str, Any]:
         kwargs.pop("avatar_path", None)

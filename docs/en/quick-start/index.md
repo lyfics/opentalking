@@ -259,3 +259,7 @@ After opening WebUI, select a `QuickTalk` avatar and the `quicktalk` model, then
 ![QuickTalk session output example](../../assets/images/companion/04_webrtc_connected.jpeg)
 
 *After selecting a QuickTalk avatar and model, check the generation state, connection status, and playback output.*
+
+## Next Steps
+
+For hosted image usage, see the [Image Platform Operation Guide](image-platform-operation.md) for instance access, static configuration, real-time conversation, video creation, and asset library operations.

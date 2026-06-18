@@ -1522,6 +1522,28 @@ async def delete_session(session_id: str, request: Request) -> dict[str, str]:
     return {"session_id": session_id, "status": "closed"}
 
 
+@router.websocket("/{session_id}/media")
+async def media_websocket(websocket: WebSocket, session_id: str) -> None:
+    r: redis.Redis = websocket.app.state.redis
+    s = await session_service.get_session(r, session_id)
+    if not s:
+        await websocket.accept()
+        await websocket.send_json({"type": "error", "message": "session not found"})
+        await websocket.close()
+        return
+
+    runners = getattr(websocket.app.state, "session_runners", None)
+    runner = runners.get(session_id) if isinstance(runners, dict) else None
+    handle_media_websocket = getattr(runner, "handle_media_websocket", None)
+    if not callable(handle_media_websocket):
+        await websocket.accept()
+        await websocket.send_json({"type": "error", "message": "media websocket unavailable"})
+        await websocket.close()
+        return
+
+    await handle_media_websocket(websocket)
+
+
 @router.post("/{session_id}/webrtc/offer")
 async def webrtc_offer(
     session_id: str,

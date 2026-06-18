@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import tempfile
 import time
@@ -126,21 +127,30 @@ def _make_temp_avatar(asset_root: Path, template_video: Path) -> Path:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Benchmark QuickTalk inside OpenTalking.")
     parser.add_argument("--asset-root", required=True)
-    parser.add_argument("--template-video", required=True)
+    parser.add_argument("--avatar-dir", help="Load an existing avatar bundle instead of a temporary template-video avatar.")
+    parser.add_argument("--template-video", help="Template video used for a temporary benchmark avatar.")
     parser.add_argument("--audio", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--device", default="cuda:0")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if not args.avatar_dir and not args.template_video:
+        parser.error("one of --avatar-dir or --template-video is required")
+    return args
 
 
 def main() -> None:
     args = parse_args()
     asset_root = Path(args.asset_root).expanduser().resolve()
-    template_video = Path(args.template_video).expanduser().resolve()
+    os.environ["OPENTALKING_QUICKTALK_ASSET_ROOT"] = str(asset_root)
     audio = Path(args.audio).expanduser().resolve()
     output = Path(args.output).expanduser().resolve()
 
-    avatar_dir = _make_temp_avatar(asset_root, template_video)
+    if args.avatar_dir:
+        avatar_dir = Path(args.avatar_dir).expanduser().resolve()
+    else:
+        template_video = Path(args.template_video).expanduser().resolve()
+        avatar_dir = _make_temp_avatar(asset_root, template_video)
+
     adapter = QuickTalkAdapter()
     adapter.load_model(args.device)
 
@@ -175,6 +185,7 @@ def main() -> None:
 
     metrics = {
         "output": str(output),
+        "avatar_dir": str(avatar_dir),
         "frames": frames,
         "fps": state.fps,
         "audio_duration_ms": chunk.duration_ms,

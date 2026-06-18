@@ -18,14 +18,19 @@ from opentalking.core.types.frames import AudioChunk
 
 def _settings_value(name: str, default: str = "") -> str:
     try:
-        from opentalking.core.config import get_settings
+        from opentalking.core import config as core_config
 
-        value = getattr(get_settings(), name, default)
+        value = getattr(core_config.get_settings(), name, default)
         if value is not None and str(value).strip():
             return str(value).strip()
     except Exception:
         pass
     return default
+
+
+def _settings_device_value(name: str) -> str:
+    value = _settings_value(name, "")
+    return "" if value.strip().lower() == "auto" else value
 
 
 def _model_aliases(model: str | None) -> set[str]:
@@ -141,8 +146,9 @@ def _resolve_local_voice_prompt(voice: str | None) -> dict[str, str] | None:
 
 def _env_device() -> str:
     return (
-        os.environ.get("OPENTALKING_TTS_LOCAL_COSYVOICE_DEVICE", "").strip()
-        or _settings_value("tts_local_cosyvoice_device", "")
+        _settings_device_value("tts_local_cosyvoice_device")
+        or _settings_device_value("local_audio_device")
+        or os.environ.get("OPENTALKING_TTS_LOCAL_COSYVOICE_DEVICE", "").strip()
         or os.environ.get("OPENTALKING_LOCAL_TTS_DEVICE", "").strip()
         or os.environ.get("OPENTALKING_LOCAL_AUDIO_DEVICE", "").strip()
         or _settings_value("local_audio_device", "auto")

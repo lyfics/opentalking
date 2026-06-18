@@ -21,6 +21,7 @@ import {
 } from "./components/VideoCreationWorkspace";
 import {
   ApiError,
+  applyRuntimeConfig,
   apiDelete,
   apiGet,
   apiPost,
@@ -29,6 +30,7 @@ import {
   apiUploadFile,
   buildApiUrl,
   getMemoryLibraries,
+  loadRuntimeConfig,
   uploadExportVideo,
   type AvatarKnowledgeBasesResponse,
   type AvatarSummary,
@@ -38,6 +40,8 @@ import {
   type KnowledgeBasesResponse,
   type PersonaSummary,
   type PersonasResponse,
+  type RuntimeConfigApplyInput,
+  type RuntimeConfigResponse,
   type SessionKnowledgeBasesRequest,
   type SessionKnowledgeBasesResponse,
   type VoiceCatalogItem,
@@ -50,7 +54,7 @@ import {
   requestTTSPreview,
 } from "./lib/ttsPreview";
 import type { VoiceCloneApplication } from "./lib/voiceCloneApply";
-import { startPlayback } from "./lib/webrtc";
+import { startPlayback, type PlaybackHandle } from "./lib/webrtc";
 import {
   DEFAULT_EDGE_VOICE_ID,
   EDGE_VOICE_STORAGE_KEY,
@@ -508,7 +512,7 @@ function validateAudioProviderConfigBeforeStart({
       : "当前 TTS API 缺少 OPENTALKING_TTS_DASHSCOPE_API_KEY");
   }
   if (missing.length === 0) return null;
-  return `${missing.join("；")}。请在后端 .env 配置后重启服务。`;
+  return `${missing.join("；")}。请展开左侧最上方“静态配置”填写后点击应用配置。`;
 }
 
 type SpeakAudioResponse = { session_id: string; status: string; text: string };
@@ -824,6 +828,7 @@ function realtimeRecordingStartErrorMessage(error: unknown): string {
 export default function App() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
+  const playbackRef = useRef<PlaybackHandle | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const realtimeRecorderRef = useRef<MediaRecorder | null>(null);
   const realtimeRecordChunksRef = useRef<Blob[]>([]);
@@ -851,7 +856,7 @@ export default function App() {
   const [models, setModels] = useState<string[]>([]);
   const [modelStatuses, setModelStatuses] = useState<ModelStatus[]>([]);
   const [avatarId, setAvatarId] = useState(() => readStoredAvatarId() ?? "singer");
-  const [model, setModel] = useState("flashtalk");
+  const [model, setModel] = useState("quicktalk");
   const [selectedPersonaId, setSelectedPersonaId] = useState<string>(() => {
     try {
       return window.localStorage.getItem(SELECTED_PERSONA_STORAGE_KEY) ?? "";
@@ -889,6 +894,9 @@ export default function App() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [currentSubtitle, setCurrentSubtitle] = useState("");
   const [, setRuntimeStatus] = useState<HealthResponse | null>(null);
+  const [runtimeConfig, setRuntimeConfig] = useState<RuntimeConfigResponse | null>(null);
+  const [runtimeConfigLoading, setRuntimeConfigLoading] = useState(false);
+  const [runtimeConfigApplying, setRuntimeConfigApplying] = useState(false);
 
   const clearSubtitleFallbackTimer = useCallback(() => {
     if (subtitleFallbackTimerRef.current !== null) {
@@ -1045,6 +1053,59 @@ export default function App() {
       setToasts((prev) => prev.filter((toast) => toast.id !== id));
     }, tone === "error" ? 5200 : 3600);
   }, []);
+
+  const refreshRuntimeConfig = useCallback(async () => {
+    setRuntimeConfigLoading(true);
+    try {
+      const next = await loadRuntimeConfig();
+      setRuntimeConfig(next);
+      return next;
+    } catch (error) {
+      console.warn("load runtime config failed", error);
+      const detail = error instanceof ApiError ? error.detail : null;
+      notify(detail ? `读取静态配置失败：${detail}` : "读取静态配置失败，请查看后端日志。", "error");
+      return null;
+    } finally {
+      setRuntimeConfigLoading(false);
+    }
+  }, [notify]);
+
+  const handleApplyRuntimeConfig = useCallback(async (input: RuntimeConfigApplyInput) => {
+    setRuntimeConfigApplying(true);
+    try {
+      const next = await applyRuntimeConfig(input);
+      setRuntimeConfig(next);
+      const provider = normalizeTtsProvider(next.tts.provider, ttsProvider);
+      setTtsProvider(provider);
+      if (next.tts.edge_voice) {
+        setEdgeVoice(next.tts.edge_voice);
+      }
+      if (next.tts.dashscope_model) {
+        setQwenModel(next.tts.dashscope_model);
+      }
+      if (next.tts.dashscope_voice) {
+        setQwenVoice(next.tts.dashscope_voice);
+      }
+      setAsrProvider("dashscope");
+      setAsrModel(next.stt.model || STT_MODEL_BY_PROVIDER.dashscope);
+      try {
+        const health = await apiGet<HealthResponse>("/health");
+        setRuntimeStatus(health);
+      } catch (error) {
+        console.warn("refresh health after runtime config failed", error);
+      }
+      notify(connection === "live"
+        ? "静态配置已热更新，后续请求会使用新配置；如当前会话仍显示旧效果，请重新启动数字人。"
+        : "静态配置已热更新，新会话将使用新配置。", "success");
+    } catch (error) {
+      console.warn("apply runtime config failed", error);
+      const detail = error instanceof ApiError ? error.detail : null;
+      notify(detail ? `应用静态配置失败：${detail}` : "应用静态配置失败，请查看后端日志。", "error");
+      throw error;
+    } finally {
+      setRuntimeConfigApplying(false);
+    }
+  }, [connection, notify, ttsProvider]);
 
   const syncSessionKnowledgeBases = useCallback((knowledgeBaseIds: string[]) => {
     const sid = sessionIdRef.current;
@@ -1584,6 +1645,13 @@ export default function App() {
   }, [messages]);
 
   const closePeerConnection = useCallback(() => {
+    if (playbackRef.current) {
+      playbackRef.current.close?.();
+      playbackRef.current = null;
+      pcRef.current = null;
+      remoteStreamRef.current = null;
+      return;
+    }
     if (pcRef.current) {
       pcRef.current.close();
       pcRef.current = null;
@@ -1693,13 +1761,15 @@ export default function App() {
   useEffect(() => {
     void (async () => {
       try {
-        const [av, mo, health] = await Promise.all([
+        const [av, mo, health, runtime] = await Promise.all([
           apiGet<AvatarSummary[]>("/avatars"),
           apiGet<{ models: string[]; statuses?: ModelStatus[]; default_model?: string | null }>("/models"),
           apiGet<HealthResponse>("/health"),
+          loadRuntimeConfig(),
           loadVoices(),
         ]);
         setRuntimeStatus(health);
+        setRuntimeConfig(runtime);
         setAvatars(av);
         setModels(mo.models);
         setAsrProvider((prev) => {
@@ -1870,6 +1940,7 @@ export default function App() {
   const handleStart = useCallback(async () => {
     if (!videoRef.current) return;
     clearSubtitleState();
+    const runtimeModel = model;
     const lockedAsrProvider = normalizeAsrProvider(asrProvider, "dashscope");
     let latestRuntimeStatus: HealthResponse | null = null;
     try {
@@ -1890,8 +1961,8 @@ export default function App() {
       return;
     }
 
-    if (PREWARMABLE_MODELS.has(model) && selectedModelConnected && selectedPrewarmState !== "ready") {
-      const ready = await requestAvatarPrewarm(avatarId, model, { force: true, modelConnected: selectedModelConnected });
+    if (PREWARMABLE_MODELS.has(runtimeModel) && selectedModelConnected && selectedPrewarmState !== "ready") {
+      const ready = await requestAvatarPrewarm(avatarId, runtimeModel, { force: true, modelConnected: selectedModelConnected });
       if (!ready) return;
     }
 
@@ -1912,7 +1983,7 @@ export default function App() {
       const created = await apiPost<CreateSessionResponse>("/sessions", {
         persona_id: selectedPersonaId || undefined,
         avatar_id: avatarId,
-        model,
+        model: runtimeModel,
         llm_system_prompt: llmSystemPrompt.trim() || undefined,
         tts_provider: ttsProvider,
         stt_provider: lockedAsrProvider,
@@ -1923,9 +1994,9 @@ export default function App() {
             : qwenVoice,
         tts_model: ttsModelSelectable(ttsProvider) ? qwenModel : undefined,
         wav2lip_postprocess_mode:
-          model === "wav2lip" && wav2lipPostprocessMode !== "auto" ? wav2lipPostprocessMode : undefined,
+          runtimeModel === "wav2lip" && wav2lipPostprocessMode !== "auto" ? wav2lipPostprocessMode : undefined,
         fasterliveportrait_config:
-          model === "fasterliveportrait" ? fasterliveportraitConfig : undefined,
+          runtimeModel === "fasterliveportrait" ? fasterliveportraitConfig : undefined,
         user_id: clientUserId,
         agent_enabled: agentConfig.memoryEnabled || agentConfig.knowledgeEnabled || (memoryEnabled && Boolean(memoryLibraryId)),
         memory_enabled: agentConfig.memoryEnabled || (memoryEnabled && Boolean(memoryLibraryId)),
@@ -1938,7 +2009,7 @@ export default function App() {
       } satisfies CreateSessionRequest);
       createdSessionId = created.session_id;
       setSessionId(created.session_id);
-      if (model === "fasterliveportrait") {
+      if (runtimeModel === "fasterliveportrait") {
         setFasterliveportraitAppliedConfig(fasterliveportraitConfig);
       }
 
@@ -1976,10 +2047,11 @@ export default function App() {
           remoteStreamRef.current = remoteStream;
         },
       });
+      playbackRef.current = playback;
       pcRef.current = playback.pc;
       remoteStreamRef.current = playback.remoteStream;
       setActiveAsrProvider(lockedAsrProvider);
-      videoRef.current!.muted = false;
+      videoRef.current!.muted = true;
       setConnection("live");
       await apiPost(`/sessions/${created.session_id}/start`, {});
       notify("会话已连接，可以开始文本、语音或音频驱动。", "success");
@@ -2009,6 +2081,7 @@ export default function App() {
     memoryLibraryId,
     model,
     notify,
+    qwenModel,
     qwenVoice,
     releaseSession,
     requestAvatarPrewarm,
@@ -2695,6 +2768,11 @@ export default function App() {
             onQwenVoiceChange={setQwenVoice}
             qwenVoiceOptions={bailianVoices}
             voiceApplyNotice={voiceApplyNotice}
+            runtimeConfig={runtimeConfig}
+            runtimeConfigLoading={runtimeConfigLoading}
+            runtimeConfigApplying={runtimeConfigApplying}
+            onRuntimeConfigRefresh={() => void refreshRuntimeConfig()}
+            onRuntimeConfigApply={handleApplyRuntimeConfig}
             ttsPreviewText={ttsPreviewText}
             onTtsPreviewTextChange={setTtsPreviewText}
             onPreviewTts={() => void handlePreviewTts()}

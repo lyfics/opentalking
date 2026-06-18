@@ -87,6 +87,7 @@ class FlashTalkWSClient:
         self.width: int = 0
         self.sample_rate: int = 16000
         self.audio_chunk_samples: int = 0  # slice_len * sample_rate // fps
+        self.lookahead_chunks: int = 0
 
     @staticmethod
     def _infer_backend_name(ws_url: str) -> str:
@@ -236,10 +237,11 @@ class FlashTalkWSClient:
         self.height = resp["height"]
         self.width = resp["width"]
         self.audio_chunk_samples = int(resp.get("chunk_samples") or (self.slice_len * self.sample_rate // self.fps))
+        self.lookahead_chunks = int(resp.get("lookahead_chunks") or 0)
         log.info(
-            "%s session init OK: %dx%d, %d fps, slice_len=%d, chunk_samples=%d",
+            "%s session init OK: %dx%d, %d fps, slice_len=%d, chunk_samples=%d, lookahead_chunks=%d",
             self._backend_name,
-            self.width, self.height, self.fps, self.slice_len, self.audio_chunk_samples,
+            self.width, self.height, self.fps, self.slice_len, self.audio_chunk_samples, self.lookahead_chunks,
         )
         return resp
 

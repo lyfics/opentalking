@@ -19,7 +19,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from apps.api.core.config import get_settings
 from apps.api.routes.avatars import _call_adapter_warmup
-from apps.api.routes import agent, avatars, events, exports, health, memory, models, personas, sessions, tts_preview, video_clone, video_creation, voices
+from apps.api.routes import agent, avatars, events, exports, health, memory, models, personas, runtime_config, sessions, tts_preview, video_clone, video_creation, voices
 from opentalking.voice.store import init_voice_store
 from opentalking.core.in_memory_redis import InMemoryRedis
 from opentalking.pipeline.session.runner import SessionRunner
@@ -38,6 +38,16 @@ def _verify_offline_bundle_route_registered(app: FastAPI) -> None:
             continue
         methods = sorted(getattr(route, "methods", None) or [])
         hits.append(f"{'|'.join(methods)} {path}")
+    if not hits:
+        try:
+            paths = app.openapi().get("paths", {})
+            for path, operations in sorted(paths.items()):
+                if "flashtalk-offline-bundle" not in path:
+                    continue
+                methods = sorted(str(method).upper() for method in operations)
+                hits.append(f"{'|'.join(methods)} {path}")
+        except Exception:
+            log.warning("flashtalk-offline-bundle OpenAPI self-check failed", exc_info=True)
     if hits:
         log.info("flashtalk-offline-bundle routes: %s", " ; ".join(hits))
     else:
@@ -219,6 +229,7 @@ def create_app() -> FastAPI:
     app.include_router(personas.router)
     app.include_router(events.router)
     app.include_router(exports.router)
+    app.include_router(runtime_config.router)
     app.include_router(tts_preview.router)
     app.include_router(video_clone.router)
     app.include_router(video_creation.router)

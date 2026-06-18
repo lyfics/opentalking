@@ -116,9 +116,9 @@ def _first_configured_device(*values: str | None) -> str:
 def _configured_quicktalk_device(*extra_values: str | None) -> str:
     return (
         _first_configured_device(
+            *extra_values,
             _env_value("OPENTALKING_QUICKTALK_DEVICE"),
             _env_value("OPENTALKING_TORCH_DEVICE"),
-            *extra_values,
         )
         or _default_quicktalk_device()
     )
@@ -251,7 +251,15 @@ def _quicktalk_settings() -> Any | None:
 
 
 def _quicktalk_asset_root_env() -> Path | None:
-    return resolve_quicktalk_asset_root(None, include_default=False)
+    for name in (
+        "OPENTALKING_QUICKTALK_ASSET_ROOT",
+        "OPENTALKING_QUICKTALK_MODEL_ROOT",
+        "OMNIRT_QUICKTALK_MODEL_ROOT",
+    ):
+        raw = os.environ.get(name, "").strip()
+        if raw:
+            return Path(raw).expanduser().resolve()
+    return None
 
 
 def _quicktalk_asset_root_config(settings: Any | None = None) -> Path | None:
@@ -412,11 +420,15 @@ class QuickTalkAdapter:
         self._neck_fade_start = float(_env_value("OPENTALKING_QUICKTALK_NECK_FADE_START", "0.72"))
         self._neck_fade_end = float(_env_value("OPENTALKING_QUICKTALK_NECK_FADE_END", "0.88"))
         self._max_template_seconds_env = _env_value("OPENTALKING_QUICKTALK_MAX_TEMPLATE_SECONDS")
-        self._model_backend = _env_value(
-            "OPENTALKING_QUICKTALK_MODEL_BACKEND",
+        settings_model_backend = (
             str(getattr(settings, "quicktalk_model_backend", "") or "").strip()
             if settings is not None
-            else "auto",
+            else ""
+        )
+        self._model_backend = (
+            settings_model_backend
+            if settings_model_backend and settings_model_backend.lower() != "auto"
+            else _env_value("OPENTALKING_QUICKTALK_MODEL_BACKEND", settings_model_backend or "auto")
         )
         # Idle frame selection. The template video typically contains the source
         # speaker talking, so cycling all frames during idle makes the avatar

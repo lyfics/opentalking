@@ -11,9 +11,9 @@ from opentalking.providers.tts.edge.adapter import _stream_decode_audio_to_pcm_c
 
 def _settings_value(name: str, default: str = "") -> str:
     try:
-        from opentalking.core.config import get_settings
+        from opentalking.core import config as core_config
 
-        value = getattr(get_settings(), name, default)
+        value = getattr(core_config.get_settings(), name, default)
         if value is not None and str(value).strip():
             return str(value).strip()
     except Exception:

@@ -684,8 +684,6 @@ class VideoCreationService:
         title: str,
     ) -> dict[str, Any]:
         model_value = _normalize_model(model)
-        if model_value != "flashtalk":
-            raise ValueError("reference video generation only supports flashtalk")
         duration = _validate_reference_duration(self.settings, duration_sec)
         sample_rate = 16000
         total_samples = duration * sample_rate

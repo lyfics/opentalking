@@ -15,6 +15,7 @@ import {
 import type { VoiceCloneApplication } from "../lib/voiceCloneApply";
 import { EDGE_ZH_VOICES } from "../constants/edgeZhVoices";
 import type { TtsProviderExtended } from "../constants/ttsBailian";
+import { modelConnectionBadge, type ModelStatus } from "../lib/modelStatus";
 import { buildTTSPreviewPayload, requestTTSPreview } from "../lib/ttsPreview";
 
 export type VideoCreationAudioSource = "upload" | "tts_text" | "voice_clone";
@@ -26,6 +27,7 @@ type VideoCreationWorkspaceProps = {
   avatars: AvatarSummary[];
   avatarId: string;
   models: string[];
+  modelStatuses?: ModelStatus[];
   onAvatarChange: (id: string) => void;
   onAvatarUploaded: (avatar: AvatarSummary) => void;
   onVoiceCloned: (application: VoiceCloneApplication) => void | Promise<void>;
@@ -60,6 +62,9 @@ const REFERENCE_DURATION_OPTIONS = [
 ] as const;
 
 const VIDEO_CREATION_MODELS = ["flashtalk", "flashhead", "fasterliveportrait", "musetalk", "quicktalk", "wav2lip"];
+const ENABLED_VIDEO_CREATION_MODEL_IDS = new Set(["quicktalk"]);
+const VIDEO_CREATION_TTS_PROVIDERS: TtsProviderExtended[] = ["edge", "dashscope", "cosyvoice", "sambert", "local_cosyvoice", "indextts", "xiaomi_mimo", "openai_compatible"];
+const ENABLED_VIDEO_CREATION_TTS_PROVIDER_IDS = new Set<TtsProviderExtended>(["edge", "dashscope"]);
 const VIDEO_CREATION_MODEL_LABELS: Record<string, string> = {
   flashtalk: "FlashTalk",
   flashhead: "FlashHead",
@@ -239,6 +244,10 @@ function providerLabel(provider: TtsProviderExtended): string {
   return "Local CosyVoice";
 }
 
+function isEnabledVideoCreationTtsProvider(provider: TtsProviderExtended): boolean {
+  return ENABLED_VIDEO_CREATION_TTS_PROVIDER_IDS.has(provider);
+}
+
 function avatarNameFromFile(file: File): string {
   const stem = file.name.replace(/\.[^.]+$/, "").trim();
   return stem ? `视频创作 ${stem}` : "视频创作形象";
@@ -248,6 +257,7 @@ export function VideoCreationWorkspace({
   avatars,
   avatarId,
   models,
+  modelStatuses = [],
   onAvatarChange,
   onAvatarUploaded,
   onVoiceCloned,
@@ -271,7 +281,7 @@ export function VideoCreationWorkspace({
   const selectedAvatar = avatars.find((avatar) => avatar.id === avatarId) ?? avatars[0] ?? null;
   const [creationMode, setCreationMode] = useState<VideoCreationMode>("spoken_video");
   const [referenceDurationSec, setReferenceDurationSec] = useState<(typeof REFERENCE_DURATION_OPTIONS)[number]["value"]>(10);
-  const [model, setModel] = useState(() => VIDEO_CREATION_MODELS.find((item) => models.includes(item)) ?? "fasterliveportrait");
+  const [model, setModel] = useState("quicktalk");
   const [audioSource, setAudioSource] = useState<VideoCreationAudioSource>("upload");
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [sourceAssetBusy, setSourceAssetBusy] = useState(false);
@@ -288,17 +298,28 @@ export function VideoCreationWorkspace({
   const ttsPreviewAudioRef = useRef<HTMLAudioElement | null>(null);
   const ttsPreviewUrlRef = useRef<string | null>(null);
 
-  const availableVideoModels = useMemo(() => VIDEO_CREATION_MODELS.filter((item) => models.includes(item)), [models]);
-  const effectiveModel = availableVideoModels.includes(model) ? model : availableVideoModels[0] ?? model;
-  const selectedVoiceLabel = ttsProvider === "edge"
+  const connectedModelIds = useMemo(() => {
+    const connected = new Set(
+      modelStatuses
+        .filter((status) => modelConnectionBadge(status, false).connected)
+        .map((status) => status.id),
+    );
+    if (connected.size > 0) return connected;
+    return new Set(models);
+  }, [modelStatuses, models]);
+  const availableVideoModels = useMemo(
+    () => VIDEO_CREATION_MODELS.filter((item) => ENABLED_VIDEO_CREATION_MODEL_IDS.has(item) && models.includes(item) && connectedModelIds.has(item)),
+    [connectedModelIds, models],
+  );
+  const effectiveModel = availableVideoModels.includes(model) ? model : availableVideoModels[0] ?? "quicktalk";
+  const effectiveTtsProvider = isEnabledVideoCreationTtsProvider(ttsProvider) ? ttsProvider : "edge";
+  const selectedVoiceLabel = effectiveTtsProvider === "edge"
     ? EDGE_ZH_VOICES.find((voice) => voice.id === edgeVoice)?.label ?? edgeVoice
-    : ttsProvider === "openai_compatible"
-      ? "后端默认音色"
-      : qwenVoiceOptions.find((voice) => voice.id === qwenVoice)?.label ?? qwenVoice;
+    : qwenVoiceOptions.find((voice) => voice.id === qwenVoice)?.label ?? qwenVoice;
   const cloneVoiceCount = voiceCatalog.filter((item) => item.source === "clone").length;
   const isReferenceVideoMode = creationMode === "reference_video";
   const canPreviewTts = !isReferenceVideoMode && audioSource !== "upload";
-  const showIndexTTSControls = !isReferenceVideoMode && audioSource !== "upload" && INDEXTTS_PROVIDER_SET.has(ttsProvider);
+  const showIndexTTSControls = !isReferenceVideoMode && audioSource !== "upload" && INDEXTTS_PROVIDER_SET.has(effectiveTtsProvider);
   const effectiveIndexTTSConfig = showIndexTTSControls ? buildIndexTTSQualityConfig(indexTTSRequestConfig(indexttsConfig)) : undefined;
   const showIndexTTSEmotionStrength = indexttsConfig.emotion_mode !== "voice";
 
@@ -342,6 +363,18 @@ export function VideoCreationWorkspace({
   }, []);
 
   useEffect(() => {
+    if (model !== effectiveModel) {
+      setModel(effectiveModel);
+    }
+  }, [effectiveModel, model]);
+
+  useEffect(() => {
+    if (!isEnabledVideoCreationTtsProvider(ttsProvider)) {
+      onTtsProviderChange("edge");
+    }
+  }, [onTtsProviderChange, ttsProvider]);
+
+  useEffect(() => {
     return () => {
       if (ttsPreviewUrlRef.current) {
         URL.revokeObjectURL(ttsPreviewUrlRef.current);
@@ -382,13 +415,17 @@ export function VideoCreationWorkspace({
   }, [effectiveModel, onAvatarUploaded, onNotify, selectedAvatar]);
 
   const handleVoiceCloned = useCallback(async (application: VoiceCloneApplication) => {
+    if (!isEnabledVideoCreationTtsProvider(application.provider as TtsProviderExtended)) {
+      onNotify?.("当前镜像只启用 Edge TTS 和百炼 API 音色。", "info");
+      return;
+    }
     await onVoiceCloned(application);
-    onTtsProviderChange(application.provider);
+    onTtsProviderChange(application.provider as TtsProviderExtended);
     onQwenModelChange(application.model);
     onQwenVoiceChange(application.voice);
     setCloneOpen(false);
     setAudioSource("voice_clone");
-  }, [onQwenModelChange, onQwenVoiceChange, onTtsProviderChange, onVoiceCloned]);
+  }, [onNotify, onQwenModelChange, onQwenVoiceChange, onTtsProviderChange, onVoiceCloned]);
 
   const handlePreviewTts = useCallback(async () => {
     const previewText = text.trim();
@@ -396,8 +433,8 @@ export function VideoCreationWorkspace({
       onNotify?.("请输入要试听的口播文本。", "info");
       return;
     }
-    const voice = ttsProvider === "edge" ? edgeVoice : ttsProvider === "sambert" || ttsProvider === "openai_compatible" ? "" : qwenVoice;
-    if (ttsProvider !== "edge" && ttsProvider !== "sambert" && ttsProvider !== "openai_compatible" && !voice.trim()) {
+    const voice = effectiveTtsProvider === "edge" ? edgeVoice : qwenVoice;
+    if (effectiveTtsProvider !== "edge" && !voice.trim()) {
       onNotify?.("当前模型没有可用音色，请先复刻音色或切换模型。", "info");
       return;
     }
@@ -411,7 +448,7 @@ export function VideoCreationWorkspace({
         buildTTSPreviewPayload({
           text: previewText,
           voice,
-          provider: ttsProvider,
+          provider: effectiveTtsProvider,
           model: qwenModel,
           indexttsConfig: effectiveIndexTTSConfig,
           indexttsEmotionAudioFile,
@@ -434,15 +471,15 @@ export function VideoCreationWorkspace({
     } finally {
       setTtsPreviewing(false);
     }
-  }, [edgeVoice, effectiveIndexTTSConfig, indexttsConfig.emotion_mode, indexttsEmotionAudioFile, onNotify, qwenModel, qwenVoice, showIndexTTSControls, text, ttsProvider]);
+  }, [edgeVoice, effectiveIndexTTSConfig, effectiveTtsProvider, indexttsConfig.emotion_mode, indexttsEmotionAudioFile, onNotify, qwenModel, qwenVoice, showIndexTTSControls, text]);
 
   const handleGenerate = useCallback(async () => {
     if (!selectedAvatar) {
       onNotify?.("请先选择数字人资产。", "info");
       return;
     }
-    if (isReferenceVideoMode && !models.includes("flashtalk")) {
-      onNotify?.("当前环境没有可用 FlashTalk 模型，无法生成参考视频。", "info");
+    if (!availableVideoModels.length) {
+      onNotify?.("当前环境没有已连接的视频生成模型。", "info");
       return;
     }
     if (!isReferenceVideoMode && audioSource === "upload" && !audioFile) {
@@ -462,7 +499,7 @@ export function VideoCreationWorkspace({
     try {
       if (isReferenceVideoMode) {
         const response = await createVideoCreationJob({
-          model: "flashtalk",
+          model: effectiveModel,
           avatarId: selectedAvatar.id,
           title,
           audioSource: "reference_video",
@@ -480,9 +517,9 @@ export function VideoCreationWorkspace({
         audioSource,
         audioFile,
         text,
-        ttsProvider,
-        ttsModel: ttsProvider === "edge" || ttsProvider === "openai_compatible" ? undefined : qwenModel,
-        voice: ttsProvider === "edge" ? edgeVoice : ttsProvider === "openai_compatible" ? undefined : qwenVoice,
+        ttsProvider: effectiveTtsProvider,
+        ttsModel: effectiveTtsProvider === "edge" ? undefined : qwenModel,
+        voice: effectiveTtsProvider === "edge" ? edgeVoice : qwenVoice,
         fasterliveportraitConfig: effectiveModel === "fasterliveportrait" ? fasterliveportraitConfig : undefined,
         indexttsConfig: effectiveIndexTTSConfig,
         indexttsEmotionAudioFile,
@@ -497,7 +534,7 @@ export function VideoCreationWorkspace({
     } finally {
       setGenerating(false);
     }
-  }, [audioFile, audioSource, edgeVoice, effectiveIndexTTSConfig, effectiveModel, fasterliveportraitConfig, indexttsConfig.emotion_mode, indexttsEmotionAudioFile, isReferenceVideoMode, models, onExportCreated, onNotify, qwenModel, qwenVoice, referenceDurationSec, selectedAvatar, showIndexTTSControls, text, title, ttsProvider]);
+  }, [audioFile, audioSource, availableVideoModels.length, edgeVoice, effectiveIndexTTSConfig, effectiveModel, effectiveTtsProvider, fasterliveportraitConfig, indexttsConfig.emotion_mode, indexttsEmotionAudioFile, isReferenceVideoMode, onExportCreated, onNotify, qwenModel, qwenVoice, referenceDurationSec, selectedAvatar, showIndexTTSControls, text, title]);
 
   return (
     <main className="flex min-h-0 flex-1 flex-col bg-slate-100 p-4">
@@ -576,7 +613,7 @@ export function VideoCreationWorkspace({
                 type="button"
                 onClick={() => {
                   setCreationMode("reference_video");
-                  setModel("flashtalk");
+                  setModel("quicktalk");
                 }}
                 className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${creationMode === "reference_video" ? "border-cyan-300 bg-cyan-50 text-cyan-700" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"}`}
               >
@@ -588,10 +625,26 @@ export function VideoCreationWorkspace({
             <div className="grid gap-4 lg:grid-cols-2">
               <label className="block text-sm font-medium text-slate-700">
                 生成模型
-                <select value={isReferenceVideoMode ? "flashtalk" : effectiveModel} onChange={(event) => setModel(event.target.value)} disabled={isReferenceVideoMode} className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm disabled:bg-slate-100">
-                  {VIDEO_CREATION_MODELS.map((item) => (
-                    <option key={item} value={item} disabled={!models.includes(item)}>{VIDEO_CREATION_MODEL_LABELS[item] ?? item}{models.includes(item) ? "" : "（不可用）"}</option>
-                  ))}
+                <select
+                  value={effectiveModel}
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    if (ENABLED_VIDEO_CREATION_MODEL_IDS.has(next) && availableVideoModels.includes(next)) {
+                      setModel(next);
+                    }
+                  }}
+                  className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
+                >
+                  {VIDEO_CREATION_MODELS.map((item) => {
+                    const enabled = ENABLED_VIDEO_CREATION_MODEL_IDS.has(item);
+                    const available = availableVideoModels.includes(item);
+                    const suffix = enabled ? (available ? "" : "（未连接）") : "（当前镜像未启用）";
+                    return (
+                      <option key={item} value={item} disabled={!enabled || !available}>
+                        {VIDEO_CREATION_MODEL_LABELS[item] ?? item}{suffix}
+                      </option>
+                    );
+                  })}
                 </select>
               </label>
               <label className="block text-sm font-medium text-slate-700">
@@ -707,7 +760,7 @@ export function VideoCreationWorkspace({
                       <img src={buildApiUrl(`/avatars/${encodeURIComponent(selectedAvatar.id)}/preview`)} alt={selectedAvatar.name ?? selectedAvatar.id} className="h-16 w-16 rounded-md border border-slate-200 object-cover" />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm font-semibold text-slate-900">{selectedAvatar.name ?? selectedAvatar.id}</span>
-                        <span className="block text-xs text-slate-500">FlashTalk 使用内部低能量驱动音频生成参考视频</span>
+                        <span className="block text-xs text-slate-500">{VIDEO_CREATION_MODEL_LABELS[effectiveModel] ?? effectiveModel} 使用内部低能量驱动音频生成参考视频</span>
                       </span>
                     </>
                   ) : (
@@ -736,24 +789,35 @@ export function VideoCreationWorkspace({
                 <div className="grid gap-3 md:grid-cols-3">
                   <label className="block text-sm font-medium text-slate-700">
                     TTS
-                    <select value={ttsProvider} onChange={(event) => onTtsProviderChange(event.target.value as TtsProviderExtended)} className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
-                      {(["edge", "dashscope", "cosyvoice", "sambert", "local_cosyvoice", "indextts", "xiaomi_mimo", "openai_compatible"] as TtsProviderExtended[]).map((item) => <option key={item} value={item}>{providerLabel(item)}</option>)}
+                    <select
+                      value={effectiveTtsProvider}
+                      onChange={(event) => {
+                        const next = event.target.value as TtsProviderExtended;
+                        if (isEnabledVideoCreationTtsProvider(next)) {
+                          onTtsProviderChange(next);
+                        }
+                      }}
+                      className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+                    >
+                      {VIDEO_CREATION_TTS_PROVIDERS.map((item) => (
+                        <option key={item} value={item} disabled={!isEnabledVideoCreationTtsProvider(item)}>
+                          {providerLabel(item)}{isEnabledVideoCreationTtsProvider(item) ? "" : "（当前镜像未启用）"}
+                        </option>
+                      ))}
                     </select>
                   </label>
                   <label className="block text-sm font-medium text-slate-700">
                     模型
-                    <select disabled={ttsProvider === "edge" || ttsProvider === "openai_compatible"} value={ttsProvider === "edge" || ttsProvider === "openai_compatible" ? "" : qwenModel} onChange={(event) => onQwenModelChange(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm disabled:bg-slate-100">
+                    <select disabled={effectiveTtsProvider === "edge"} value={effectiveTtsProvider === "edge" ? "" : qwenModel} onChange={(event) => onQwenModelChange(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm disabled:bg-slate-100">
                       {qwenModelOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
                     </select>
                   </label>
                   <label className="block text-sm font-medium text-slate-700">
                     音色
-                    {ttsProvider === "edge" ? (
+                    {effectiveTtsProvider === "edge" ? (
                       <select value={edgeVoice} onChange={(event) => onEdgeVoiceChange(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
                         {EDGE_ZH_VOICES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
                       </select>
-                    ) : ttsProvider === "openai_compatible" ? (
-                      <input disabled value="后端 .env 默认音色" className="mt-2 w-full rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-500" />
                     ) : (
                       <select value={qwenVoice} onChange={(event) => onQwenVoiceChange(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
                         {qwenVoiceOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}

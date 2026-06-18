@@ -32,6 +32,7 @@ class FakeOmniRTWSClient:
         self.width = 0
         self.sample_rate = 16000
         self.audio_chunk_samples = 0
+        self.lookahead_chunks = 0
 
     async def init_session(self, **kwargs: Any) -> dict[str, Any]:
         self.init_kwargs = kwargs
@@ -42,6 +43,7 @@ class FakeOmniRTWSClient:
         self.height = 704
         self.width = 416
         self.audio_chunk_samples = 17920
+        self.lookahead_chunks = 1
         return {
             "type": "init_ok",
             "frame_num": self.frame_num,
@@ -51,6 +53,7 @@ class FakeOmniRTWSClient:
             "height": self.height,
             "width": self.width,
             "chunk_samples": self.audio_chunk_samples,
+            "lookahead_chunks": self.lookahead_chunks,
         }
 
     async def generate(self, audio_pcm: np.ndarray) -> list[VideoFrameData]:
@@ -100,6 +103,7 @@ async def test_omnirt_audio2video_client_delegates_session_generate_and_close(
     assert client.width == 416
     assert client.height == 704
     assert client.audio_chunk_samples == 17920
+    assert client.lookahead_chunks == 1
     assert ws_client.closed_with is True
 
 

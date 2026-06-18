@@ -72,6 +72,7 @@ plugins:
             Platform Notes: 平台说明
             Docker Deployment: Docker 部署
             Windows Deployment: Windows 部署
+            Image Platform Operation: 镜像平台操作
             Usage: 使用指南
             Usage Overview: 使用概览
             WebUI Usage: WebUI 使用
@@ -208,6 +209,7 @@ nav:
           - Platform Notes: quick-start/platform-notes.md
           - Docker Deployment: quick-start/docker-deployment.md
           - Windows Deployment: quick-start/windows-deployment.md
+          - Image Platform Operation: quick-start/image-platform-operation.md
       - Usage:
           - Usage Overview: usage/index.md
           - Command Line Usage:
@@ -288,6 +290,7 @@ nav:
       - Platform Notes: quick-start/platform-notes.md
       - Docker Deployment: quick-start/docker-deployment.md
       - Windows Deployment: quick-start/windows-deployment.md
+      - Image Platform Operation: quick-start/image-platform-operation.md
   - Usage:
       - Usage Overview: usage/index.md
       - Command Line Usage:

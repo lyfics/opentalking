@@ -6,6 +6,7 @@ FlashTalkSessionRunner – drives the full conversation pipeline:
 from __future__ import annotations
 
 import asyncio
+import base64
 import io
 import json
 import logging
@@ -16,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from starlette.websockets import WebSocketDisconnect
 
 from opentalking.avatar.wav2lip_config import (
     normalize_wav2lip_postprocess_mode,
@@ -333,6 +335,12 @@ class FlashTalkRunner:
         self._debug_frame_trace = os.environ.get("OPENTALKING_RTC_DEBUG_FRAMES", "").strip().lower() in {"1", "true", "yes", "on"}
         self._debug_queued_video_count = 0
         self._debug_prev_video_mean: float | None = None
+        self._webrtc_connected = False
+        self._media_ws_clients: set[asyncio.Queue[dict[str, Any] | None]] = set()
+        self._media_ws_jpeg_quality = max(20, min(95, _env_int("OPENTALKING_MEDIA_WS_JPEG_QUALITY", 70)))
+        self._quicktalk_audio_delay_ms = max(0.0, _env_float("OPENTALKING_QUICKTALK_AUDIO_DELAY_MS", 0.0))
+        self._media_playback_wall_start: float | None = None
+        self._speech_media_drain_until_wall: float | None = None
 
     async def _build_agent_context(self, query: str = "") -> str | None:
         if not self.agent_config.agent_enabled:
@@ -889,7 +897,17 @@ class FlashTalkRunner:
         @self.webrtc.pc.on("connectionstatechange")
         async def _on_connection_state_change() -> None:
             state = self.webrtc.pc.connectionState if self.webrtc else None
+            if state == "connected":
+                self._webrtc_connected = True
             if state in ("failed", "closed", "disconnected"):
+                self._webrtc_connected = False
+                if self._media_ws_clients:
+                    log.info(
+                        "WebRTC connection %s for session %s, continuing over media WebSocket",
+                        state,
+                        self.session_id,
+                    )
+                    return
                 log.info(
                     "WebRTC connection %s for session %s, auto-closing",
                     state, self.session_id,
@@ -1066,6 +1084,7 @@ class FlashTalkRunner:
                 continue
             if (
                 (self._speaking and self._speech_media_active)
+                or self._speech_media_drain_pending()
                 or not self.webrtc
                 or not self._webrtc_started.is_set()
             ):
@@ -1083,6 +1102,8 @@ class FlashTalkRunner:
 
     async def _idle_tick(self) -> None:
         if not self.webrtc:
+            return
+        if self._speech_media_drain_pending():
             return
         if self.webrtc.draining:   # block idle injection during queue drain
             return
@@ -1535,6 +1556,131 @@ class FlashTalkRunner:
         await self._queue_initial_video_frame()
         return {"sdp": ans.sdp, "type": ans.type}
 
+    async def handle_media_websocket(self, websocket: Any) -> None:
+        """Stream already-rendered media over WebSocket as a browser fallback."""
+        await websocket.accept()
+        queue: asyncio.Queue[dict[str, Any] | None] | None = None
+        try:
+            if not self.ready_event.is_set():
+                await websocket.send_json({"type": "initializing", "session_id": self.session_id})
+            await asyncio.wait_for(self.ready_event.wait(), timeout=60)
+            queue = asyncio.Queue(maxsize=512)
+            self._media_ws_clients.add(queue)
+            self._webrtc_started.set()
+            await websocket.send_json(
+                {
+                    "type": "ready",
+                    "session_id": self.session_id,
+                    "sample_rate": 16000,
+                    "fps": float(getattr(self.flashtalk, "fps", 25) or 25),
+                }
+            )
+            await self._queue_initial_video_frame()
+            log.info(
+                "Media WebSocket connected: session=%s clients=%d",
+                self.session_id,
+                len(self._media_ws_clients),
+            )
+            while True:
+                item = await queue.get()
+                if item is None:
+                    break
+                try:
+                    await websocket.send_json(item)
+                except WebSocketDisconnect:
+                    break
+        finally:
+            if queue is not None:
+                self._media_ws_clients.discard(queue)
+            log.info(
+                "Media WebSocket disconnected: session=%s clients=%d",
+                self.session_id,
+                len(self._media_ws_clients),
+            )
+
+    def _enqueue_media_ws_event(self, event: dict[str, Any]) -> None:
+        clients = getattr(self, "_media_ws_clients", None)
+        if not clients:
+            return
+        for queue in tuple(clients):
+            try:
+                queue.put_nowait(event)
+                continue
+            except asyncio.QueueFull:
+                pass
+            try:
+                queue.get_nowait()
+            except asyncio.QueueEmpty:
+                pass
+            try:
+                queue.put_nowait(event)
+            except asyncio.QueueFull:
+                pass
+
+    def _broadcast_media_ws_video(self, frame: Any) -> None:
+        if not getattr(self, "_media_ws_clients", None):
+            return
+        try:
+            import cv2
+
+            arr = np.asarray(frame.data)
+            if arr.size == 0:
+                return
+            ok, encoded = cv2.imencode(
+                ".jpg",
+                arr,
+                [int(cv2.IMWRITE_JPEG_QUALITY), self._media_ws_jpeg_quality],
+            )
+            if not ok:
+                return
+            self._enqueue_media_ws_event(
+                {
+                    "type": "video",
+                    "format": "jpeg",
+                    "speech": bool(self._speech_media_active),
+                    "timestamp_ms": float(getattr(frame, "timestamp_ms", self._av_ts_ms) or 0.0),
+                    "width": int(getattr(frame, "width", arr.shape[1] if arr.ndim >= 2 else 0) or 0),
+                    "height": int(getattr(frame, "height", arr.shape[0] if arr.ndim >= 2 else 0) or 0),
+                    "data": base64.b64encode(encoded.tobytes()).decode("ascii"),
+                }
+            )
+        except Exception:
+            log.exception("Media WebSocket video encode failed: session=%s", self.session_id)
+
+    def _broadcast_media_ws_audio(
+        self,
+        pcm: np.ndarray,
+        *,
+        timestamp_ms: float | None = None,
+        duration_ms: float | None = None,
+    ) -> None:
+        if not getattr(self, "_media_ws_clients", None):
+            return
+        try:
+            arr = np.asarray(pcm, dtype=np.int16).reshape(-1)
+            if arr.size == 0:
+                return
+            sample_rate = 16000
+            event: dict[str, Any] = {
+                "type": "audio",
+                "format": "pcm_s16le",
+                "speech": bool(self._speech_media_active),
+                "sample_rate": sample_rate,
+                "samples": int(arr.size),
+                "data": base64.b64encode(arr.tobytes()).decode("ascii"),
+            }
+            if timestamp_ms is not None:
+                event["timestamp_ms"] = max(0.0, float(timestamp_ms))
+            if duration_ms is not None:
+                event["duration_ms"] = max(0.0, float(duration_ms))
+            else:
+                event["duration_ms"] = (arr.size * 1000.0) / sample_rate
+            self._enqueue_media_ws_event(
+                event
+            )
+        except Exception:
+            log.exception("Media WebSocket audio encode failed: session=%s", self.session_id)
+
     async def _queue_initial_video_frame(self) -> None:
         """Send one still frame immediately after WebRTC starts.
 
@@ -1583,11 +1729,59 @@ class FlashTalkRunner:
         await self._video_put_safe(frame)
         log.info("FasterLivePortrait rest frame queued: session=%s", self.session_id)
 
+    def _maybe_delay_quicktalk_audio(
+        self,
+        pcm: np.ndarray,
+        sample_rate: int,
+        *,
+        already_delayed: bool,
+    ) -> np.ndarray:
+        arr = np.asarray(pcm, dtype=np.int16).reshape(-1)
+        if (
+            self.model_type != "quicktalk"
+            or already_delayed
+            or self._quicktalk_audio_delay_ms <= 0.0
+            or arr.size == 0
+        ):
+            return arr
+        delay_samples = int(round(float(sample_rate) * self._quicktalk_audio_delay_ms / 1000.0))
+        if delay_samples <= 0:
+            return arr
+        return np.concatenate((np.zeros(delay_samples, dtype=np.int16), arr)).astype(np.int16, copy=False)
+
     def _ensure_media_clock_started(self) -> None:
         if self.webrtc is None or self._media_clock_started:
             return
         self.webrtc.reset_clocks()
         self._media_clock_started = True
+
+    def _speech_media_drain_pending(self) -> bool:
+        until = getattr(self, "_speech_media_drain_until_wall", None)
+        if until is None:
+            return False
+        if time.perf_counter() < until:
+            return True
+        self._speech_media_drain_until_wall = None
+        return False
+
+    def _mark_speech_media_drain(self) -> None:
+        if self._interrupt.is_set() or self._av_ts_ms <= 0.0:
+            self._speech_media_drain_until_wall = None
+            return
+        wall_start = self._media_playback_wall_start
+        if wall_start is None:
+            wall_start = time.perf_counter()
+        cushion_ms = max(0.0, _env_float("OPENTALKING_SPEECH_IDLE_DRAIN_CUSHION_MS", 320.0))
+        until = wall_start + (float(self._av_ts_ms) + cushion_ms) / 1000.0
+        previous = self._speech_media_drain_until_wall
+        self._speech_media_drain_until_wall = max(previous or 0.0, until)
+        remaining_ms = max(0.0, (self._speech_media_drain_until_wall - time.perf_counter()) * 1000.0)
+        log.info(
+            "Speech media drain guard: session=%s av_ts_ms=%.1f remaining_ms=%.0f",
+            self.session_id,
+            self._av_ts_ms,
+            remaining_ms,
+        )
 
     def _prebuffer_chunks(
         self,
@@ -1644,7 +1838,7 @@ class FlashTalkRunner:
         n_frames: int,
         first_media_this_speak: bool,
     ) -> float:
-        """Keep FLP near real-time without dropping or inventing frames."""
+        """Keep generated media near real-time without dropping or inventing frames."""
         if (
             first_media_this_speak
             or n_frames <= 0
@@ -1659,18 +1853,54 @@ class FlashTalkRunner:
         if max_frames <= 0 or max_wait_ms <= 0:
             return 0.0
 
-        vq = self.webrtc.video._queue.qsize()
-        if vq + n_frames <= max_frames:
+        webrtc_connected = bool(getattr(self, "_webrtc_connected", True))
+        media_ws_clients = getattr(self, "_media_ws_clients", None)
+        if webrtc_connected:
+            vq = self.webrtc.video._queue.qsize()
+            if vq + n_frames <= max_frames:
+                return 0.0
+
+            deadline = time.perf_counter() + (max_wait_ms / 1000.0)
+            waited_ms = 0.0
+            while self.webrtc and not self._interrupt.is_set():
+                vq = self.webrtc.video._queue.qsize()
+                if vq <= target or time.perf_counter() >= deadline:
+                    break
+                await asyncio.sleep(0.02)
+                waited_ms += 20.0
+            return waited_ms
+
+        if not media_ws_clients:
+            return 0.0
+
+        wall_start = self._media_playback_wall_start
+        if wall_start is None:
+            wall_start = time.perf_counter()
+            self._media_playback_wall_start = wall_start
+
+        fps = max(1.0, float(getattr(self.flashtalk, "fps", 25) or 25))
+        frame_ms = 1000.0 / fps
+        queued_until_ms = self._av_ts_ms + (n_frames * frame_ms)
+        max_ahead_ms = max_frames * frame_ms
+        target_ahead_ms = target * frame_ms
+
+        def _ahead_ms() -> float:
+            elapsed_ms = (time.perf_counter() - wall_start) * 1000.0
+            return queued_until_ms - elapsed_ms
+
+        if _ahead_ms() <= max_ahead_ms:
             return 0.0
 
         deadline = time.perf_counter() + (max_wait_ms / 1000.0)
         waited_ms = 0.0
-        while self.webrtc and not self._interrupt.is_set():
-            vq = self.webrtc.video._queue.qsize()
-            if vq <= target or time.perf_counter() >= deadline:
+        while not self._interrupt.is_set() and getattr(self, "_media_ws_clients", None):
+            ahead_ms = _ahead_ms()
+            now = time.perf_counter()
+            if ahead_ms <= target_ahead_ms or now >= deadline:
                 break
-            await asyncio.sleep(0.02)
-            waited_ms += 20.0
+            sleep_s = min(0.02, max(0.005, (ahead_ms - target_ahead_ms) / 1000.0))
+            await asyncio.sleep(sleep_s)
+            waited_ms += sleep_s * 1000.0
         return waited_ms
 
     def create_speak_task(
@@ -1812,6 +2042,8 @@ class FlashTalkRunner:
                 self.webrtc.reset_clocks()
                 self.webrtc.draining = False
                 self._media_clock_started = False
+                self._media_playback_wall_start = None
+                self._speech_media_drain_until_wall = None
                 self._av_ts_ms = 0.0
                 self._speech_media_active = False  # consumer will re-set after prebuffer
 
@@ -2248,9 +2480,17 @@ class FlashTalkRunner:
                 flashtalk_gen_sum_s = 0.0
                 flashtalk_chunks = 0
                 generated = 0
+                playback_chunks = 0
                 pending: list[tuple[np.ndarray, list[Any], str | None]] = []
+                pending_audio_for_frames: tuple[np.ndarray, str | None] | None = None
                 n_opener = opener_chunk_count[0]
                 pacing_started = False
+                audio_delay_applied = False
+                lookahead_chunks = (
+                    max(0, int(getattr(self.flashtalk, "lookahead_chunks", 0) or 0))
+                    if self.model_type == "quicktalk"
+                    else 0
+                )
 
                 async def _publish_subtitle_chunk(text: str) -> None:
                     await publish_event(
@@ -2269,7 +2509,59 @@ class FlashTalkRunner:
                         self.webrtc.clear_media_queues()
                         self.webrtc.reset_clocks()
                     self._av_ts_ms = 0.0
+                    self._media_playback_wall_start = time.perf_counter()
                     self._media_clock_started = True
+
+                async def _queue_playback_chunk(
+                    playback_pcm: np.ndarray,
+                    playback_frames: list[Any],
+                    playback_sub_tag: str | None,
+                ) -> None:
+                    nonlocal playback_chunks, audio_delay_applied
+                    playback_pcm = np.asarray(playback_pcm, dtype=np.int16)
+                    if playback_pcm.size == 0:
+                        return
+                    playback_pcm = self._maybe_delay_quicktalk_audio(
+                        playback_pcm,
+                        sample_rate,
+                        already_delayed=audio_delay_applied,
+                    )
+                    if self.model_type == "quicktalk" and not audio_delay_applied and playback_pcm.size > 0:
+                        audio_delay_applied = True
+                    playback_chunks += 1
+
+                    if playback_chunks <= n_opener:
+                        # Opener chunk: start pacing immediately.
+                        _start_pacing()
+                        if playback_sub_tag:
+                            await _publish_subtitle_chunk(playback_sub_tag)
+                        await self._queue_av_chunk(playback_pcm, playback_frames)
+                        return
+
+                    # TTS chunks: if pacing already started (opener present),
+                    # send straight through.
+                    if pacing_started:
+                        if playback_sub_tag:
+                            await _publish_subtitle_chunk(playback_sub_tag)
+                        await self._queue_av_chunk(playback_pcm, playback_frames)
+                        return
+
+                    # No opener — original prebuffer path.
+                    pending.append((playback_pcm, playback_frames, playback_sub_tag))
+                    if playback_chunks < prebuffer_chunks:
+                        return
+
+                    log.info(
+                        "Pre-buffer done (%d chunks, %.2fs audio), starting pacing",
+                        playback_chunks,
+                        (playback_chunks * chunk_samples) / sample_rate,
+                    )
+                    _start_pacing()
+                    for pc, bf, st in pending:
+                        if st:
+                            await _publish_subtitle_chunk(st)
+                        await self._queue_av_chunk(pc, bf)
+                    pending.clear()
 
                 while True:
                     item = await audio_q.get()
@@ -2301,38 +2593,50 @@ class FlashTalkRunner:
                     flashtalk_chunks += 1
                     generated += 1
 
-                    if generated <= n_opener:
-                        # Opener chunk: start pacing immediately.
-                        _start_pacing()
-                        if sub_tag:
-                            await _publish_subtitle_chunk(sub_tag)
-                        await self._queue_av_chunk(pcm_chunk, frames)
-                        continue
+                    playback_pcm = pcm_chunk
+                    playback_sub_tag = sub_tag
+                    if lookahead_chunks > 0:
+                        if pending_audio_for_frames is None:
+                            pending_audio_for_frames = (pcm_chunk, sub_tag)
+                            if frames:
+                                log.warning(
+                                    "QuickTalk lookahead returned frames before pending audio: session=%s frames=%d",
+                                    self.session_id,
+                                    len(frames),
+                                )
+                            continue
+                        playback_pcm, playback_sub_tag = pending_audio_for_frames
+                        pending_audio_for_frames = (pcm_chunk, sub_tag)
 
-                    # TTS chunks: if pacing already started (opener present),
-                    # send straight through.
-                    if pacing_started:
-                        if sub_tag:
-                            await _publish_subtitle_chunk(sub_tag)
-                        await self._queue_av_chunk(pcm_chunk, frames)
-                        continue
+                    await _queue_playback_chunk(playback_pcm, frames, playback_sub_tag)
 
-                    # No opener — original prebuffer path.
-                    pending.append((pcm_chunk, frames, sub_tag))
-                    if generated < prebuffer_chunks:
-                        continue
-
-                    log.info(
-                        "Pre-buffer done (%d chunks, %.2fs audio), starting pacing",
-                        generated,
-                        (generated * chunk_samples) / sample_rate,
-                    )
-                    _start_pacing()
-                    for pc, bf, st in pending:
-                        if st:
-                            await _publish_subtitle_chunk(st)
-                        await self._queue_av_chunk(pc, bf)
-                    pending.clear()
+                if pending_audio_for_frames is not None and not self._interrupt.is_set():
+                    pending_pcm, pending_sub_tag = pending_audio_for_frames
+                    flush_pcm = np.zeros_like(pending_pcm)
+                    if flush_pcm.size > 0:
+                        g0 = time.perf_counter()
+                        frames = await self._generate_flashtalk_frames(flush_pcm)
+                        g1 = time.perf_counter()
+                        flashtalk_gen_sum_s += g1 - g0
+                        timing.setdefault("model_chunk_latency_ms", []).append(
+                            (g1 - g0) * 1000.0
+                        )
+                        flashtalk_chunks += 1
+                        generated += 1
+                        if frames:
+                            log.info(
+                                "QuickTalk lookahead flush: session=%s frames=%d",
+                                self.session_id,
+                                len(frames),
+                            )
+                        else:
+                            log.warning(
+                                "QuickTalk lookahead flush produced no frames: session=%s samples=%d",
+                                self.session_id,
+                                int(pending_pcm.size),
+                            )
+                        await _queue_playback_chunk(pending_pcm, frames, pending_sub_tag)
+                    pending_audio_for_frames = None
 
                 if pending and not self._interrupt.is_set():
                     log.info(
@@ -2345,6 +2649,7 @@ class FlashTalkRunner:
                         if st:
                             await _publish_subtitle_chunk(st)
                         await self._queue_av_chunk(pc, buffered_frames)
+                    pending.clear()
 
                 timing["flashtalk_generate_sum_ms"] = flashtalk_gen_sum_s * 1000.0
                 timing["flashtalk_chunks"] = float(flashtalk_chunks)
@@ -2356,6 +2661,7 @@ class FlashTalkRunner:
                 t_parallel0 = time.perf_counter()
                 await asyncio.gather(_producer(), _consumer())
                 timing["parallel_total_ms"] = (time.perf_counter() - t_parallel0) * 1000.0
+                self._mark_speech_media_drain()
                 await self._queue_fasterliveportrait_rest_frame()
             except Exception as e:
                 log.exception("FlashTalk speak failed: session=%s", self.session_id)
@@ -2523,6 +2829,8 @@ class FlashTalkRunner:
                 self.webrtc.reset_clocks()
                 self.webrtc.draining = False
                 self._media_clock_started = False
+                self._media_playback_wall_start = None
+                self._speech_media_drain_until_wall = None
                 self._av_ts_ms = 0.0
                 self._speech_media_active = False
 
@@ -2597,8 +2905,16 @@ class FlashTalkRunner:
                 flashtalk_gen_sum_s = 0.0
                 flashtalk_chunks = 0
                 generated = 0
+                playback_chunks = 0
                 pending: list[tuple[np.ndarray, list[Any], str | None]] = []
+                pending_audio_for_frames: tuple[np.ndarray, str | None] | None = None
                 pacing_started = False
+                audio_delay_applied = False
+                lookahead_chunks = (
+                    max(0, int(getattr(self.flashtalk, "lookahead_chunks", 0) or 0))
+                    if self.model_type == "quicktalk"
+                    else 0
+                )
 
                 async def _publish_subtitle_chunk(text: str) -> None:
                     await publish_event(
@@ -2619,7 +2935,55 @@ class FlashTalkRunner:
                         self.webrtc.clear_media_queues()
                         self.webrtc.reset_clocks()
                     self._av_ts_ms = 0.0
+                    self._media_playback_wall_start = time.perf_counter()
                     self._media_clock_started = True
+
+                async def _queue_playback_chunk(
+                    playback_pcm: np.ndarray,
+                    playback_frames: list[Any],
+                    playback_sub_tag: str | None,
+                ) -> None:
+                    nonlocal playback_chunks, audio_delay_applied
+                    playback_pcm = np.asarray(playback_pcm, dtype=np.int16)
+                    if playback_pcm.size == 0:
+                        return
+                    playback_pcm = self._maybe_delay_quicktalk_audio(
+                        playback_pcm,
+                        sample_rate,
+                        already_delayed=audio_delay_applied,
+                    )
+                    if self.model_type == "quicktalk" and not audio_delay_applied and playback_pcm.size > 0:
+                        audio_delay_applied = True
+                    playback_chunks += 1
+
+                    if playback_chunks <= n_opener_chunks:
+                        _start_pacing()
+                        if playback_sub_tag:
+                            await _publish_subtitle_chunk(playback_sub_tag)
+                        await self._queue_av_chunk(playback_pcm, playback_frames)
+                        return
+
+                    if pacing_started:
+                        if playback_sub_tag:
+                            await _publish_subtitle_chunk(playback_sub_tag)
+                        await self._queue_av_chunk(playback_pcm, playback_frames)
+                        return
+
+                    pending.append((playback_pcm, playback_frames, playback_sub_tag))
+                    if playback_chunks < prebuffer_chunks:
+                        return
+
+                    log.info(
+                        "Pre-buffer done (%d chunks, %.2fs audio), starting pacing",
+                        playback_chunks,
+                        (playback_chunks * chunk_samples) / sample_rate,
+                    )
+                    _start_pacing()
+                    for pc, bf, st in pending:
+                        if st:
+                            await _publish_subtitle_chunk(st)
+                        await self._queue_av_chunk(pc, bf)
+                    pending.clear()
 
                 while True:
                     item = await audio_q.get()
@@ -2642,34 +3006,46 @@ class FlashTalkRunner:
                     flashtalk_chunks += 1
                     generated += 1
 
-                    if generated <= n_opener_chunks:
-                        _start_pacing()
-                        if sub_tag:
-                            await _publish_subtitle_chunk(sub_tag)
-                        await self._queue_av_chunk(pcm_chunk, frames)
-                        continue
+                    playback_pcm = pcm_chunk
+                    playback_sub_tag = sub_tag
+                    if lookahead_chunks > 0:
+                        if pending_audio_for_frames is None:
+                            pending_audio_for_frames = (pcm_chunk, sub_tag)
+                            if frames:
+                                log.warning(
+                                    "QuickTalk upload lookahead returned frames before pending audio: session=%s frames=%d",
+                                    self.session_id,
+                                    len(frames),
+                                )
+                            continue
+                        playback_pcm, playback_sub_tag = pending_audio_for_frames
+                        pending_audio_for_frames = (pcm_chunk, sub_tag)
 
-                    if pacing_started:
-                        if sub_tag:
-                            await _publish_subtitle_chunk(sub_tag)
-                        await self._queue_av_chunk(pcm_chunk, frames)
-                        continue
+                    await _queue_playback_chunk(playback_pcm, frames, playback_sub_tag)
 
-                    pending.append((pcm_chunk, frames, sub_tag))
-                    if generated < prebuffer_chunks:
-                        continue
-
-                    log.info(
-                        "Pre-buffer done (%d chunks, %.2fs audio), starting pacing",
-                        generated,
-                        (generated * chunk_samples) / sample_rate,
-                    )
-                    _start_pacing()
-                    for pc, bf, st in pending:
-                        if st:
-                            await _publish_subtitle_chunk(st)
-                        await self._queue_av_chunk(pc, bf)
-                    pending.clear()
+                if pending_audio_for_frames is not None and not self._interrupt.is_set():
+                    pending_pcm, pending_sub_tag = pending_audio_for_frames
+                    flush_pcm = np.zeros_like(pending_pcm)
+                    if flush_pcm.size > 0:
+                        g0 = time.perf_counter()
+                        frames = await self._generate_flashtalk_frames(flush_pcm)
+                        flashtalk_gen_sum_s += time.perf_counter() - g0
+                        flashtalk_chunks += 1
+                        generated += 1
+                        if frames:
+                            log.info(
+                                "QuickTalk upload lookahead flush: session=%s frames=%d",
+                                self.session_id,
+                                len(frames),
+                            )
+                        else:
+                            log.warning(
+                                "QuickTalk upload lookahead flush produced no frames: session=%s samples=%d",
+                                self.session_id,
+                                int(pending_pcm.size),
+                            )
+                        await _queue_playback_chunk(pending_pcm, frames, pending_sub_tag)
+                    pending_audio_for_frames = None
 
                 if pending and not self._interrupt.is_set():
                     log.info(
@@ -2682,6 +3058,7 @@ class FlashTalkRunner:
                         if st:
                             await _publish_subtitle_chunk(st)
                         await self._queue_av_chunk(pc, buffered_frames)
+                    pending.clear()
 
                 timing["flashtalk_generate_sum_ms"] = flashtalk_gen_sum_s * 1000.0
                 timing["flashtalk_chunks"] = float(flashtalk_chunks)
@@ -2692,6 +3069,7 @@ class FlashTalkRunner:
                 t_parallel0 = time.perf_counter()
                 await asyncio.gather(_producer(), _consumer())
                 timing["parallel_total_ms"] = (time.perf_counter() - t_parallel0) * 1000.0
+                self._mark_speech_media_drain()
                 await self._queue_fasterliveportrait_rest_frame()
             except Exception as e:
                 log.exception("FlashTalk speak_uploaded_pcm failed: session=%s", self.session_id)
@@ -2750,9 +3128,23 @@ class FlashTalkRunner:
         A/V backlog. Outside that path, keep the older drop-oldest behavior so
         idle preview never wedges on a stale peer.
         """
+        self._broadcast_media_ws_video(frame)
         if not self.webrtc:
             return
-        if self._speech_media_active and self._webrtc_started.is_set() and not self.webrtc.draining:
+        media_ws_clients = getattr(self, "_media_ws_clients", None)
+        webrtc_connected = bool(getattr(self, "_webrtc_connected", True))
+        if (
+            self._speech_media_active
+            and media_ws_clients
+            and not webrtc_connected
+        ):
+            return
+        if (
+            self._speech_media_active
+            and self._webrtc_started.is_set()
+            and webrtc_connected
+            and not self.webrtc.draining
+        ):
             await self.webrtc.video._queue.put(frame)
             return
         try:
@@ -2768,16 +3160,27 @@ class FlashTalkRunner:
             except asyncio.QueueFull:
                 pass
 
-    async def _audio_put_safe(self, pcm: np.ndarray) -> None:
+    async def _audio_put_safe(self, pcm: np.ndarray, *, broadcast_media_ws: bool = True) -> None:
         """Queue audio samples in small chunks for smooth WebRTC playback."""
+        arr = np.asarray(pcm, dtype=np.int16)
+        if broadcast_media_ws:
+            self._broadcast_media_ws_audio(arr)
         if not self.webrtc:
             return
-        arr = np.asarray(pcm, dtype=np.int16)
+        media_ws_clients = getattr(self, "_media_ws_clients", None)
+        webrtc_connected = bool(getattr(self, "_webrtc_connected", True))
+        if (
+            self._speech_media_active
+            and media_ws_clients
+            and not webrtc_connected
+        ):
+            return
         # Split into ~20ms chunks (320 samples at 16kHz) for smooth playback
         chunk_size = 320
         block_for_backpressure = (
             self._speech_media_active
             and self._webrtc_started.is_set()
+            and webrtc_connected
             and not self.webrtc.draining
         )
         for i in range(0, len(arr), chunk_size):
@@ -2941,8 +3344,17 @@ class FlashTalkRunner:
         arr = np.asarray(pcm_chunk, dtype=np.int16)
         total_samples = len(arr)
         n_frames = len(frames)
+        sample_rate = max(1, int(getattr(self.flashtalk, "sample_rate", 16000) or 16000))
         if n_frames == 0:
-            await self._audio_put_safe(arr)
+            audio_duration_ms = (total_samples * 1000.0) / sample_rate if total_samples else 0.0
+            if total_samples > 0:
+                self._broadcast_media_ws_audio(
+                    arr,
+                    timestamp_ms=self._av_ts_ms,
+                    duration_ms=audio_duration_ms,
+                )
+                await self._audio_put_safe(arr, broadcast_media_ws=False)
+                self._av_ts_ms += audio_duration_ms
             return
 
         await self._append_recording_frames_if_enabled(frames)
@@ -2951,7 +3363,6 @@ class FlashTalkRunner:
             first_media_this_speak=first_media_this_speak,
         )
 
-        sample_rate = max(1, int(getattr(self.flashtalk, "sample_rate", 16000) or 16000))
         default_frame_interval_ms = 1000.0 / max(1.0, float(getattr(self.flashtalk, "fps", 25) or 25))
         av_offset_ms = _env_float("AV_OFFSET_MS", 0.0)
 
@@ -2974,7 +3385,12 @@ class FlashTalkRunner:
             # but feed them right after the matching video frame so A/V stay
             # in lockstep within the queue.
             if len(audio_slice) > 0:
-                await self._audio_put_safe(audio_slice)
+                self._broadcast_media_ws_audio(
+                    audio_slice,
+                    timestamp_ms=self._av_ts_ms,
+                    duration_ms=audio_duration_ms,
+                )
+                await self._audio_put_safe(audio_slice, broadcast_media_ws=False)
             self._av_ts_ms += audio_duration_ms
 
         # Cache last frame for idle loop
@@ -3061,6 +3477,7 @@ class FlashTalkRunner:
                 pass
         self._speaking = False
         self._speech_media_active = False
+        self._speech_media_drain_until_wall = None
 
         # WebRTC：清缓冲并重置时钟，避免打断后仍播放旧一段的音画。
         if self.webrtc:

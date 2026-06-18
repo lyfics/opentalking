@@ -93,6 +93,7 @@ def _local_runner_device(model: str, settings: Any, default_device: str) -> str:
         from opentalking.models.quicktalk.adapter import _configured_quicktalk_device
 
         return _configured_quicktalk_device(
+            os.environ.get("OPENTALKING_QUICKTALK_DEVICE"),
             getattr(settings, "quicktalk_device", ""),
             os.environ.get("OPENTALKING_DEVICE"),
             os.environ.get("DEVICE"),

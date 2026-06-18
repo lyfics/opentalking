@@ -96,9 +96,22 @@ mkdir -p "$run_dir" "$log_dir"
 if [[ -f "$pid_file" ]]; then
   old_pid="$(cat "$pid_file" 2>/dev/null || true)"
   if [[ -n "$old_pid" ]] && kill -0 "$old_pid" >/dev/null 2>&1; then
-    echo "OmniRT QuickTalk is already running: pid=$old_pid port=$port"
-    echo "Log: $log_file"
-    exit 0
+    if curl --max-time 2 -fsS "http://127.0.0.1:$port/v1/audio2video/models" >/dev/null 2>&1; then
+      echo "OmniRT QuickTalk is already running: pid=$old_pid port=$port"
+      echo "Log: $log_file"
+      exit 0
+    fi
+    echo "OmniRT QuickTalk pid exists but endpoint is unavailable; restarting pid=$old_pid port=$port" >&2
+    kill "$old_pid" >/dev/null 2>&1 || true
+    for _ in {1..20}; do
+      if ! kill -0 "$old_pid" >/dev/null 2>&1; then
+        break
+      fi
+      sleep 0.5
+    done
+    if kill -0 "$old_pid" >/dev/null 2>&1; then
+      kill -9 "$old_pid" >/dev/null 2>&1 || true
+    fi
   fi
   rm -f "$pid_file"
 fi

@@ -52,6 +52,14 @@ type CloneProvider =
   | "local_cosyvoice"
   | "indextts"
   | "xiaomi_mimo";
+const ENABLED_CLONE_PROVIDERS = new Set<CloneProvider>(["dashscope"]);
+const CLONE_PROVIDER_OPTIONS: { id: CloneProvider; label: string }[] = [
+  { id: "dashscope", label: "千问（DashScope 复刻）" },
+  { id: "xiaomi_mimo", label: "小米 MiMo VoiceClone" },
+  { id: "local_cosyvoice", label: "本地 CosyVoice" },
+  { id: "indextts", label: "Local IndexTTS" },
+  { id: "cosyvoice", label: "云端 CosyVoice" },
+];
 type RecorderPhase = "idle" | "recording" | "paused" | "recorded";
 
 function defaultTargetModelForProvider(provider: CloneProvider): string {
@@ -120,6 +128,7 @@ export function BailianVoiceClone({ onSuccess, onClose }: BailianVoiceCloneProps
   }, [audioUrl]);
 
   const onProviderChange = (p: CloneProvider) => {
+    if (!ENABLED_CLONE_PROVIDERS.has(p)) return;
     setProvider(p);
     setTargetModel(defaultTargetModelForProvider(p));
   };
@@ -294,6 +303,10 @@ export function BailianVoiceClone({ onSuccess, onClose }: BailianVoiceCloneProps
       setMessage("请选择目标模型");
       return;
     }
+    if (!ENABLED_CLONE_PROVIDERS.has(provider)) {
+      setMessage("当前镜像只启用百炼 DashScope 音色复刻。");
+      return;
+    }
     setBusy(true);
     setMessage(null);
     try {
@@ -388,11 +401,15 @@ export function BailianVoiceClone({ onSuccess, onClose }: BailianVoiceCloneProps
               onChange={(e) => onProviderChange(e.target.value as CloneProvider)}
               disabled={busy}
             >
-              <option value="dashscope">千问（DashScope 复刻）</option>
-              <option value="xiaomi_mimo">小米 MiMo VoiceClone</option>
-              <option value="local_cosyvoice">本地 CosyVoice</option>
-              <option value="indextts">Local IndexTTS</option>
-              <option value="cosyvoice">云端 CosyVoice</option>
+              {CLONE_PROVIDER_OPTIONS.map((option) => (
+                <option
+                  key={option.id}
+                  value={option.id}
+                  disabled={!ENABLED_CLONE_PROVIDERS.has(option.id)}
+                >
+                  {option.label}{ENABLED_CLONE_PROVIDERS.has(option.id) ? "" : "（当前镜像未启用）"}
+                </option>
+              ))}
             </select>
           </label>
           <label className="block">

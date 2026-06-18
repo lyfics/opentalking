@@ -79,6 +79,16 @@ show_pid() {
   echo "$name: not running from quickstart pid file"
 }
 
+pid_running() {
+  local pid_file="$1"
+  if [[ ! -f "$pid_file" ]]; then
+    return 1
+  fi
+  local pid
+  pid="$(cat "$pid_file" 2>/dev/null || true)"
+  [[ -n "$pid" ]] && kill -0 "$pid" >/dev/null 2>&1
+}
+
 check_url() {
   local label="$1"
   local url="$2"
@@ -156,4 +166,12 @@ show_pid "OmniRT QuickTalk" "$run_dir/omnirt-quicktalk.pid"
 show_pid "OmniRT FlashTalk endpoint" "$run_dir/omnirt-flashtalk.pid"
 show_pid "OmniRT MuseTalk WS backend" "$run_dir/omnirt-musetalk-ws.pid"
 show_pid "OmniRT MuseTalk gateway" "$run_dir/omnirt-musetalk.pid"
-check_url "OmniRT /v1/audio2video/models" "$omnirt_url/v1/audio2video/models"
+show_pid "OmniRT FasterLivePortrait" "$run_dir/omnirt-fasterliveportrait.pid"
+show_pid "OmniRT IndexTTS" "$run_dir/omnirt-indextts.pid"
+if pid_running "$run_dir/omnirt-quicktalk.pid"; then
+  check_url "OmniRT /v1/audio2video/models" "$omnirt_url/v1/audio2video/models"
+elif [[ "${OPENTALKING_DEFAULT_MODEL:-}" == "quicktalk" && "${OPENTALKING_QUICKTALK_BACKEND:-local}" == "local" ]]; then
+  echo "OmniRT /v1/audio2video/models: skipped (not required for local QuickTalk)"
+else
+  check_url "OmniRT /v1/audio2video/models" "$omnirt_url/v1/audio2video/models"
+fi
