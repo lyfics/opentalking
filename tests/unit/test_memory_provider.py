@@ -93,8 +93,9 @@ def test_decision_agent_realtime_write_keeps_generic_prompts_out() -> None:
     assert len(generic) == 1
     assert generic[0].metadata["category"] == "mem0_candidate"
     assert len(preference) == 1
-    assert preference[0].metadata["category"] == "mem0_candidate"
-    assert preference[0].metadata["confidence"] == "unknown"
+    assert preference[0].metadata["category"] == "user_preference"
+    assert preference[0].metadata["confidence"] == "high"
+    assert preference[0].metadata["write_action"] == "direct_write"
 
 
 def test_decision_agent_routes_digital_human_write_scenarios_to_mem0() -> None:
@@ -158,8 +159,54 @@ def test_decision_agent_keeps_explicit_name_write_with_later_name_reference() ->
         interrupted=False,
     )
 
-    assert decision.action == "mem0_infer"
-    assert decision.reason == "needs_smart_judgement"
+    assert decision.action == "direct_write"
+    assert decision.reason == "explicit_write_request"
+    assert len(decision.items) == 1
+    assert decision.items[0].text == "请记住，我叫op。以后提到我的名字时要回答op。"
+
+
+def test_memory_runtime_explicit_write_targets_the_selected_library_without_mem0_inference() -> None:
+    class FakeProvider:
+        def __init__(self) -> None:
+            self.turn_calls = 0
+            self.raw_calls: list[dict[str, object]] = []
+
+        async def add_conversation_turns(self, **_kwargs):
+            self.turn_calls += 1
+            return 0
+
+        async def add_items(self, **kwargs):
+            self.raw_calls.append(kwargs)
+            return len(kwargs["items"])
+
+    async def run() -> None:
+        provider = FakeProvider()
+        runtime = MemoryRuntime(
+            scope=MemoryScope(
+                enabled=True,
+                profile_id="default",
+                character_id="immortal-man",
+                library_id="studio-memory-current",
+            ),
+            provider=provider,
+            settings=Settings(memory_smart_write_enabled=True, memory_write_mode="hybrid"),
+        )
+
+        runtime.schedule_write(
+            user_text="请记住，我叫 op。",
+            assistant_text="好的，op。",
+            interrupted=False,
+        )
+        await runtime.drain()
+
+        assert provider.turn_calls == 0
+        assert len(provider.raw_calls) == 1
+        assert provider.raw_calls[0]["library_id"] == "studio-memory-current"
+        assert provider.raw_calls[0]["profile_id"] == "default"
+        assert provider.raw_calls[0]["character_id"] == "immortal-man"
+        assert [item.text for item in provider.raw_calls[0]["items"]] == ["请记住，我叫 op。"]
+
+    asyncio.run(run())
 
 
 def test_memory_runtime_does_not_summary_buffer_recall_questions() -> None:
@@ -1371,7 +1418,7 @@ def test_memory_runtime_smart_write_uses_provider_conversation_turns() -> None:
         )
 
         runtime.schedule_write(
-            user_text="记住，我喜欢简洁回答。",
+            user_text="我喜欢简洁回答。",
             assistant_text="好的。",
             interrupted=False,
         )
@@ -1379,7 +1426,7 @@ def test_memory_runtime_smart_write_uses_provider_conversation_turns() -> None:
 
         assert provider.raw_calls == 0
         assert provider.turn_calls[0]["turns"] == [
-            {"role": "user", "content": "记住，我喜欢简洁回答。"},
+            {"role": "user", "content": "我喜欢简洁回答。"},
         ]
         assert provider.turn_calls[0]["include_assistant_context"] is False
 

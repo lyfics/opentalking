@@ -322,6 +322,33 @@ class MemoryDecisionAgent:
         ):
             return MemoryWriteDecision("reject", reason="recall_question")
 
+        if _EXPLICIT_WRITE_REQUEST_RE.search(text):
+            category, confidence, _reason = self._classify_write_candidate(text, import_mode=False)
+            if category == "reject":
+                category, confidence = "user_preference", "high"
+            item = MemoryItem(
+                id="",
+                text=text,
+                type=self._classify(text, category=category),
+                metadata={
+                    "role": "user",
+                    "source": "session",
+                    "source_type": "realtime_turn",
+                    "category": category,
+                    "confidence": confidence,
+                    "write_action": "direct_write",
+                    "decision_reason": "explicit_write_request",
+                },
+                created_at=utc_now_iso(),
+            )
+            return MemoryWriteDecision(
+                "direct_write",
+                category=category,
+                confidence=confidence,
+                reason="explicit_write_request",
+                items=[item],
+            )
+
         item = MemoryItem(
             id="",
             text=text,
