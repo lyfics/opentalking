@@ -1415,11 +1415,14 @@ async def flashtalk_offline_bundle_enqueue(
         raise HTTPException(status_code=400, detail="解码后音频为空")
 
     job_id = uuid.uuid4().hex[:16]
-    base = Path(tempfile.gettempdir()) / "opentalking_upload_pcm"
-    base.mkdir(parents=True, exist_ok=True)
-    pcm_path = base / f"{session_id}_offline_{job_id}.pcm"
     try:
-        pcm_path.write_bytes(pcm.tobytes())
+        with tempfile.NamedTemporaryFile(
+            suffix=".pcm",
+            prefix=f"{session_id}_offline_{job_id}_",
+            delete=False,
+        ) as tmp:
+            tmp.write(pcm.tobytes())
+            pcm_path = Path(tmp.name)
     except OSError as e:
         raise HTTPException(status_code=500, detail=f"failed to write pcm: {e}") from e
 

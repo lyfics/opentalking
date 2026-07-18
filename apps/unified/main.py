@@ -31,13 +31,8 @@ log = logging.getLogger(__name__)
 def _verify_offline_bundle_route_registered(app: FastAPI) -> None:
     """若缺失则 404 为 Starlette 默认 ``Not Found``（非 session not found），多为装了旧版包。"""
     log.info("apps.api.routes.sessions loaded from: %s", sessions.__file__)
-    hits: list[str] = []
-    for route in app.routes:
-        path = getattr(route, "path", None) or ""
-        if "flashtalk-offline-bundle" not in path:
-            continue
-        methods = sorted(getattr(route, "methods", None) or [])
-        hits.append(f"{'|'.join(methods)} {path}")
+    paths = app.openapi().get("paths", {})
+    hits = [path for path in paths if "flashtalk-offline-bundle" in path]
     if hits:
         log.info("flashtalk-offline-bundle routes: %s", " ; ".join(hits))
     else:

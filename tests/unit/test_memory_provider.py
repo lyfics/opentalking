@@ -149,6 +149,19 @@ def test_decision_agent_rejects_recall_style_questions_as_writes() -> None:
     assert decision.reason == "recall_question"
 
 
+def test_decision_agent_keeps_explicit_name_write_with_later_name_reference() -> None:
+    agent = MemoryDecisionAgent()
+
+    decision = agent.decide_conversation_write_decision(
+        user_text="请记住，我叫op。以后提到我的名字时要回答op。",
+        assistant_text="已更新记忆：用户名称为op。",
+        interrupted=False,
+    )
+
+    assert decision.action == "mem0_infer"
+    assert decision.reason == "needs_smart_judgement"
+
+
 def test_memory_runtime_does_not_summary_buffer_recall_questions() -> None:
     class FakeProvider:
         async def list_libraries(self, **_kwargs):

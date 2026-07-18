@@ -38,6 +38,16 @@ class MemoryProvider(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    async def delete_library(
+        self,
+        *,
+        library_id: str,
+        profile_id: str,
+        character_id: str,
+    ) -> bool:
+        raise NotImplementedError
+
+    @abstractmethod
     async def list_items(
         self,
         *,

@@ -61,7 +61,7 @@ def test_create_session_rejects_api_stt_without_module_key(monkeypatch, tmp_path
 def test_create_session_rejects_api_tts_without_module_key(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.delenv("OPENTALKING_TTS_API_KEY", raising=False)
     monkeypatch.delenv("OPENTALKING_TTS_DASHSCOPE_API_KEY", raising=False)
-    monkeypatch.setenv("OPENTALKING_STT_PROVIDER", "sensevoice")
+    monkeypatch.setenv("OPENTALKING_STT_DEFAULT_PROVIDER", "sensevoice")
 
     with _client(monkeypatch, tmp_path) as client:
         response = client.post(
@@ -78,7 +78,7 @@ def test_create_session_rejects_xiaomi_mimo_tts_without_profile_key(monkeypatch,
     monkeypatch.delenv("OPENTALKING_TTS_XIAOMI_BASE_URL", raising=False)
     monkeypatch.delenv("OPENTALKING_TTS_OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("OPENTALKING_TTS_OPENAI_BASE_URL", raising=False)
-    monkeypatch.setenv("OPENTALKING_STT_PROVIDER", "sensevoice")
+    monkeypatch.setenv("OPENTALKING_STT_DEFAULT_PROVIDER", "sensevoice")
 
     with _client(monkeypatch, tmp_path) as client:
         response = client.post(

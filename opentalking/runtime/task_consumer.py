@@ -609,12 +609,9 @@ async def handle_worker_task(
             except Exception:
                 log.warning("speak_flashtalk_audio invalid pcm payload key=%s session=%s", pcm_key, sid)
                 return
-            base = Path(tempfile.gettempdir()) / "opentalking_worker_pcm"
-            base.mkdir(parents=True, exist_ok=True)
             with tempfile.NamedTemporaryFile(
                 suffix=".pcm",
                 prefix=f"{sid}_",
-                dir=base,
                 delete=False,
             ) as tmp:
                 tmp.write(pcm_bytes)

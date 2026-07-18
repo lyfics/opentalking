@@ -213,6 +213,26 @@ class Mem0MemoryProvider(MemoryProvider):
                 return library
         return None
 
+    async def delete_library(
+        self,
+        *,
+        library_id: str,
+        profile_id: str,
+        character_id: str,
+    ) -> bool:
+        scoped_items = await self._all_scoped_items(profile_id=profile_id, character_id=character_id)
+        matches = [item for item in scoped_items if item.metadata.get("library_id") == library_id]
+        if not matches:
+            return False
+        delete = getattr(self._client, "delete", None)
+        if not callable(delete):
+            return False
+        for item in matches:
+            raw_id = item.metadata.get("_mem0_id") or item.id
+            with _suppress_mem0_raw_logs():
+                await _maybe_await(delete(raw_id))
+        return True
+
     async def list_items(
         self,
         *,
@@ -593,6 +613,21 @@ class InMemoryMemoryProvider(MemoryProvider):
         async with self._lock:
             library = self._libraries.get((profile_id, character_id, library_id))
             return self._with_count(library) if library is not None else None
+
+    async def delete_library(
+        self,
+        *,
+        library_id: str,
+        profile_id: str,
+        character_id: str,
+    ) -> bool:
+        async with self._lock:
+            key = (profile_id, character_id, library_id)
+            if key not in self._libraries:
+                return False
+            del self._libraries[key]
+            self._items.pop(key, None)
+            return True
 
     async def list_items(
         self,

@@ -139,3 +139,39 @@ def clone_qwen_voice(
     if not voice:
         raise RuntimeError(f"百炼返回无 voice 字段: {data!r}")
     return str(voice)
+
+
+def delete_cloud_voice(*, provider: str, voice_id: str) -> None:
+    voice = voice_id.strip()
+    if not voice:
+        raise ValueError("voice_id is required")
+    normalized_provider = provider.strip().lower()
+    if normalized_provider == "dashscope":
+        model = "qwen-voice-enrollment"
+        input_payload = {"action": "delete", "voice": voice}
+    elif normalized_provider == "cosyvoice":
+        model = "voice-enrollment"
+        input_payload = {"action": "delete_voice", "voice_id": voice}
+    else:
+        raise ValueError(f"unsupported cloud voice provider: {provider}")
+    headers = {
+        "Authorization": f"Bearer {_dashscope_api_key()}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": model,
+        "input": input_payload,
+    }
+    try:
+        with httpx.Client(timeout=60.0) as client:
+            response = client.post(DASHSCOPE_CUSTOMIZATION_URL, json=payload, headers=headers)
+    except httpx.RequestError as exc:
+        raise RuntimeError(f"百炼音色删除请求失败: {exc}") from exc
+    if response.status_code != 200:
+        try:
+            body = response.json()
+        except ValueError:
+            body = {}
+        if str(body.get("code") or "").strip() == "BadRequest.VoiceNotFound":
+            return
+        raise RuntimeError(f"百炼音色删除失败 HTTP {response.status_code}: {response.text[:800]}")

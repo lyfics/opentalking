@@ -43,6 +43,11 @@ _RECALL_WRITE_QUESTION_RE = re.compile(
     r"(我的|我现在|我之前|我上次|我刚才).{0,30}"
     r"(是什么|是啥|叫啥|哪个|哪些|什么|多少|目标|项目|偏好|习惯|名字))"
 )
+_EXPLICIT_WRITE_REQUEST_RE = re.compile(
+    r"(请|帮我|麻烦)?\s*(记住|记一下|记下来|保存|更新记忆)|"
+    r"(remember|don't forget|save this)",
+    re.IGNORECASE,
+)
 _ASSISTANT_CONTEXT_CONFIRMATION_RE = re.compile(
     r"((好|可以|行|嗯|没问题|同意|接受|就这样).{0,20}"
     r"(以后|之后|下次|就按|按|这样|这么|方式|方案|计划|练|记住)|"
@@ -311,7 +316,10 @@ class MemoryDecisionAgent:
             return MemoryWriteDecision("reject", reason="sensitive")
         if _MEMORY_CHECK_QUESTION_RE.search(text):
             return MemoryWriteDecision("reject", reason="memory_check_question")
-        if _NAMED_ENTITY_QUESTION_RE.search(text) or _RECALL_WRITE_QUESTION_RE.search(text):
+        if (
+            _NAMED_ENTITY_QUESTION_RE.search(text)
+            or (_RECALL_WRITE_QUESTION_RE.search(text) and not _EXPLICIT_WRITE_REQUEST_RE.search(text))
+        ):
             return MemoryWriteDecision("reject", reason="recall_question")
 
         item = MemoryItem(

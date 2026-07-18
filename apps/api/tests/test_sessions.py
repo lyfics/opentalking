@@ -210,6 +210,17 @@ def _wait_until(predicate, timeout: float = 2.0) -> None:
     raise AssertionError("condition not met before timeout")
 
 
+def test_unified_route_check_recognizes_lazy_included_routes(caplog) -> None:
+    app = FastAPI()
+    app.include_router(sessions_routes.router)
+    caplog.set_level("INFO", logger="apps.unified.main")
+
+    unified_main._verify_offline_bundle_route_registered(app)
+
+    assert "flashtalk-offline-bundle routes:" in caplog.text
+    assert "未注册 flashtalk-offline-bundle" not in caplog.text
+
+
 @pytest.fixture
 def unified_client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> TestClient:
     created_runners: dict[str, FakeRunner] = {}

@@ -698,8 +698,15 @@ async def delete_voice_entry(entry_id: int) -> JSONResponse:
         raise HTTPException(status_code=404, detail="not found")
     if row.get("source") != "clone":
         raise HTTPException(status_code=400, detail="不能删除系统预设音色")
+    provider = str(row.get("provider") or "").strip().lower()
+    voice_id = str(row.get("voice_id") or "").strip()
+    if provider in {"dashscope", "cosyvoice"}:
+        try:
+            bailian_clone.delete_cloud_voice(provider=provider, voice_id=voice_id)
+        except (ValueError, RuntimeError) as e:
+            raise HTTPException(status_code=502, detail=str(e)) from e
     if delete_entry(entry_id):
-        if row.get("provider") in {"local_cosyvoice", "local_f5_tts", *INDEXTTS_PROVIDERS}:
-            _remove_local_prompt(str(row.get("voice_id") or ""))
+        if provider in {"local_cosyvoice", "local_f5_tts", *INDEXTTS_PROVIDERS}:
+            _remove_local_prompt(voice_id)
         return JSONResponse({"ok": True})
     raise HTTPException(status_code=404, detail="not found")

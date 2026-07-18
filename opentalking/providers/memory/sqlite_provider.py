@@ -109,6 +109,22 @@ class SQLiteMemoryProvider(MemoryProvider):
         rows = await self.list_libraries(profile_id=profile_id, character_id=character_id)
         return next((row for row in rows if row.id == library_id), None)
 
+    async def delete_library(
+        self,
+        *,
+        library_id: str,
+        profile_id: str,
+        character_id: str,
+    ) -> bool:
+        async with self._lock:
+            await asyncio.to_thread(self._ensure_schema)
+            return await asyncio.to_thread(
+                self._delete_library,
+                library_id,
+                profile_id,
+                character_id,
+            )
+
     async def list_items(
         self,
         *,
@@ -288,6 +304,24 @@ class SQLiteMemoryProvider(MemoryProvider):
     def _fetchall(self, sql: str, params: tuple[object, ...]) -> list[sqlite3.Row]:
         with self._connect() as conn:
             return list(conn.execute(sql, params).fetchall())
+
+    def _delete_library(self, library_id: str, profile_id: str, character_id: str) -> bool:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                DELETE FROM memory_items
+                WHERE library_id = ? AND profile_id = ? AND character_id = ?
+                """,
+                (library_id, profile_id, character_id),
+            )
+            deleted = conn.execute(
+                """
+                DELETE FROM memory_libraries
+                WHERE id = ? AND profile_id = ? AND character_id = ?
+                """,
+                (library_id, profile_id, character_id),
+            ).rowcount
+            return bool(deleted)
 
 
 def _decode_metadata(raw: str) -> dict[str, object]:

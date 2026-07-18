@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
+import httpx
 import numpy as np
 import pytest
 
@@ -289,6 +290,183 @@ def test_delete_local_cosyvoice_clone_removes_prompt_dir(tmp_path, monkeypatch):
 
     assert response.status_code == 200
     assert not voice_dir.exists()
+
+
+@pytest.mark.parametrize("provider", ["dashscope", "cosyvoice"])
+def test_delete_cloud_clone_removes_remote_voice_before_registry(provider, monkeypatch):
+    events: list[tuple[str, object]] = []
+    monkeypatch.setattr(voices_routes, "init_voice_store", lambda: None)
+    monkeypatch.setattr(
+        voices_routes,
+        "get_entry",
+        lambda entry_id: {
+            "id": entry_id,
+            "source": "clone",
+            "provider": provider,
+            "voice_id": "cloud-test-voice",
+        },
+    )
+    monkeypatch.setattr(
+        voices_routes.bailian_clone,
+        "delete_cloud_voice",
+        lambda *, provider, voice_id: events.append(("remote", provider, voice_id)),
+        raising=False,
+    )
+
+    def delete_registry(entry_id):
+        events.append(("registry", entry_id))
+        return True
+
+    monkeypatch.setattr(voices_routes, "delete_entry", delete_registry)
+
+    app = FastAPI()
+    app.include_router(voices_routes.router)
+    response = TestClient(app).delete("/voices/123")
+
+    assert response.status_code == 200
+    assert events == [("remote", provider, "cloud-test-voice"), ("registry", 123)]
+
+
+def test_delete_cloud_clone_keeps_registry_when_remote_delete_fails(monkeypatch):
+    registry_deletes: list[int] = []
+    monkeypatch.setattr(voices_routes, "init_voice_store", lambda: None)
+    monkeypatch.setattr(
+        voices_routes,
+        "get_entry",
+        lambda entry_id: {
+            "id": entry_id,
+            "source": "clone",
+            "provider": "dashscope",
+            "voice_id": "cloud-test-voice",
+        },
+    )
+
+    def fail_remote_delete(**_kwargs):
+        raise RuntimeError("remote unavailable")
+
+    monkeypatch.setattr(voices_routes.bailian_clone, "delete_cloud_voice", fail_remote_delete, raising=False)
+    monkeypatch.setattr(voices_routes, "delete_entry", lambda entry_id: registry_deletes.append(entry_id) or True)
+
+    app = FastAPI()
+    app.include_router(voices_routes.router)
+    response = TestClient(app).delete("/voices/123")
+
+    assert response.status_code == 502
+    assert registry_deletes == []
+
+
+@pytest.mark.parametrize(
+    ("provider", "expected_model", "expected_input"),
+    [
+        (
+            "dashscope",
+            "qwen-voice-enrollment",
+            {"action": "delete", "voice": "cloud-test-voice"},
+        ),
+        (
+            "cosyvoice",
+            "voice-enrollment",
+            {"action": "delete_voice", "voice_id": "cloud-test-voice"},
+        ),
+    ],
+)
+def test_delete_cloud_voice_uses_provider_specific_contract(
+    provider,
+    expected_model,
+    expected_input,
+    monkeypatch,
+):
+    requests: list[dict[str, object]] = []
+
+    class FakeResponse:
+        status_code = 200
+        text = "{}"
+
+        @staticmethod
+        def json():
+            return {"output": {"voice": "cloud-test-voice"}}
+
+    class FakeClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def post(self, _url, *, json, headers):
+            requests.append({"json": json, "headers": headers})
+            return FakeResponse()
+
+    monkeypatch.setattr(voices_routes.bailian_clone, "_dashscope_api_key", lambda: "test-key")
+    monkeypatch.setattr(voices_routes.bailian_clone.httpx, "Client", FakeClient)
+
+    voices_routes.bailian_clone.delete_cloud_voice(
+        provider=provider,
+        voice_id="cloud-test-voice",
+    )
+
+    assert requests[0]["json"] == {
+        "model": expected_model,
+        "input": expected_input,
+    }
+
+
+def test_delete_cloud_voice_treats_missing_remote_voice_as_deleted(monkeypatch):
+    class FakeResponse:
+        status_code = 400
+        text = '{"code":"BadRequest.VoiceNotFound"}'
+
+        @staticmethod
+        def json():
+            return {"code": "BadRequest.VoiceNotFound", "message": "Voice not found"}
+
+    class FakeClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def post(self, *_args, **_kwargs):
+            return FakeResponse()
+
+    monkeypatch.setattr(voices_routes.bailian_clone, "_dashscope_api_key", lambda: "test-key")
+    monkeypatch.setattr(voices_routes.bailian_clone.httpx, "Client", FakeClient)
+
+    voices_routes.bailian_clone.delete_cloud_voice(
+        provider="dashscope",
+        voice_id="already-deleted",
+    )
+
+
+def test_delete_cloud_voice_wraps_network_failures(monkeypatch):
+    class FakeClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def post(self, *_args, **_kwargs):
+            raise httpx.ConnectError("offline")
+
+    monkeypatch.setattr(voices_routes.bailian_clone, "_dashscope_api_key", lambda: "test-key")
+    monkeypatch.setattr(voices_routes.bailian_clone.httpx, "Client", FakeClient)
+
+    with pytest.raises(RuntimeError, match="百炼音色删除请求失败"):
+        voices_routes.bailian_clone.delete_cloud_voice(
+            provider="dashscope",
+            voice_id="cloud-test-voice",
+        )
 
 
 def test_get_voices_includes_local_cosyvoice_system_voice_dirs(tmp_path, monkeypatch):

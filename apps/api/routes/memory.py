@@ -205,6 +205,23 @@ async def create_library(body: MemoryLibraryRequest) -> dict[str, object]:
     return asdict(library)
 
 
+@router.delete("/libraries/{library_id}")
+async def delete_library(
+    library_id: str,
+    profile_id: str = Query("default"),
+    character_id: str = Query(...),
+) -> dict[str, bool]:
+    provider = await _memory_provider()
+    deleted = await provider.delete_library(
+        library_id=library_id,
+        profile_id=_profile(profile_id),
+        character_id=_ensure_character(character_id),
+    )
+    if not deleted:
+        raise HTTPException(status_code=404, detail="memory library not found")
+    return {"deleted": True}
+
+
 @router.get("/libraries/{library_id}/items")
 async def list_items(
     library_id: str,

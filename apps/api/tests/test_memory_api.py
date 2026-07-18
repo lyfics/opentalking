@@ -69,6 +69,46 @@ def test_memory_api_import_list_delete(monkeypatch) -> None:
         assert deleted.json() == {"deleted": True}
 
 
+def test_memory_api_deletes_library_and_all_items(monkeypatch) -> None:
+    provider = InMemoryMemoryProvider()
+    monkeypatch.setattr(memory_routes, "build_memory_provider", lambda: provider)
+
+    app = FastAPI()
+    app.include_router(memory_routes.router)
+
+    with TestClient(app) as client:
+        assert client.post(
+            "/memory/libraries",
+            json={"id": "to-delete", "name": "Disposable", "character_id": "avatar-a"},
+        ).status_code == 200
+        assert client.post(
+            "/memory/libraries/to-delete/import",
+            json={
+                "profile_id": "default",
+                "character_id": "avatar-a",
+                "turns": [{"role": "user", "content": "Remember this temporary fact."}],
+            },
+        ).status_code == 200
+
+        deleted = client.delete(
+            "/memory/libraries/to-delete",
+            params={"profile_id": "default", "character_id": "avatar-a"},
+        )
+        libraries = client.get(
+            "/memory/libraries",
+            params={"profile_id": "default", "character_id": "avatar-a"},
+        )
+        items = client.get(
+            "/memory/libraries/to-delete/items",
+            params={"profile_id": "default", "character_id": "avatar-a"},
+        )
+
+    assert deleted.status_code == 200
+    assert deleted.json() == {"deleted": True}
+    assert libraries.json()["items"] == []
+    assert items.json()["items"] == []
+
+
 def test_memory_api_generates_unique_library_ids_when_id_is_omitted(monkeypatch) -> None:
     provider = InMemoryMemoryProvider()
     monkeypatch.setattr(memory_routes, "build_memory_provider", lambda: provider)
